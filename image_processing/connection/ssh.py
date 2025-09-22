@@ -4,9 +4,9 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 class SSH_Controller():
-    def __init__(self, src_device: str, target_device: str, remote_addr: str, username: str, password: str) -> None:
-        self.src_device = src_device
-        self.target_device = target_device
+    def __init__(self, remote_addr: str, username: str, password: str) -> None:
+        self.src_device = None
+        self.target_device = None
         self.client = paramiko.SSHClient()
         self.remote_addr = remote_addr
         self.username = username
@@ -41,7 +41,9 @@ class SSH_Controller():
     def parse_cmd_output(self, cmd_output: tuple[paramiko.channel.ChannelStdinFile, paramiko.channel.ChannelFile, paramiko.channel.ChannelStderrFile]) -> list[str]:
         stdin, stdout, stderr = cmd_output
         parsed_output = []
-        for line in iter(stdout.readline, ""):
-            parsed_output.append()
+        for line in stdout:  
+            line = line.rstrip("\n")
+            parsed_output.append(line)
+
         return parsed_output
     

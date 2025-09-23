@@ -1,6 +1,11 @@
 from typing import Optional
-from image_processing.camera import Camera, CameraBackend
-from image_processing.camera.backends import RB5Backend
+from image_processing.camera import Camera, CameraBackend, constructGstreamerPipeline
+from image_processing.camera.backends import RemoteCamera, GStreamerManager, GStreamerCamera
+import os, glob
+from string import Template
+
+from cv2 import VideoCapture, CAP_GSTREAMER
+
 
 import logging
 
@@ -9,84 +14,206 @@ LOGGER = logging.getLogger(__name__)
 
 class Hadron640R:
     def __init__(self):
-        self.rgb: OV64B = OV64B()
-        self.infrared: Boson640 = Boson640()
-        self.gstreamer_pids = []
-        self.gstreamer_pids_dict = {"rgb": None, "infrared": None}
+        self.backendManager = GStreamerManager()
+        self.ports = {
+            'BOSON640': 5000,
+            'OV64B': 6000
+        }
+        self.processes = []
+    
+    def getProcessIds(self):
+        process_ids = []
+        if all((self.client, self.host, self.username, self.password)):
+            hadron = RemoteCamera(self.client, self.host, self.username, self.password)
+            hadron.connect()
+            raw_process_ids = hadron.getProcessID("gst")
+            process_ids = [process_id.replace("\n", "").replace("\r", "") for process_id in raw_process_ids]
+        return process_ids
+
+    
+    def setConnection(self, client, host, username, password):
+        self.client = client
+        self.host = host
+        self.username = username 
+        self.password = password
+
+
 
     def initialize(self):
-        self.infrared.initialize()
-        gst_pid = self.infrared.backend.getGstreamerPID(self.gstreamer_pids)
-        self.gstreamer_pids.append(gst_pid)
-        self.gstreamer_pids_dict["infrared"] = gst_pid
-
-        self.rgb.initialize()
-        gst_pid = self.rgb.backend.getGstreamerPID(self.gstreamer_pids)
-        self.gstreamer_pids.append(gst_pid)
-        self.gstreamer_pids_dict["rgb"] = gst_pid
-    
-    def terminateRGB(self):
-        self.rgb.backend.terminateGstreamer(self.gstreamer_pids_dict["rgb"])
-    
-    def terminateInfrared(self):
-        self.infrared.backend.terminateGstreamer(self.gstreamer_pids_dict["infrared"])
-
-    def terminateCameras(self):
-        self.terminateInfrared()
-        self.terminateRGB()
+        self.backendManager.addCamera(OV64B())
+        self.backendManager.addCamera(Boson640())
         
+        self.backendManager.cameras["OV64B"].setConnection(self.client, self.host, self.username, self.password)
+        self.backendManager.cameras["BOSON640"].setConnection(self.client, self.host, self.username, self.password)
+        
+        self.backendManager.cameras["OV64B"].setPort(self.ports["OV64B"])
+        self.backendManager.cameras["BOSON640"].setPort(self.ports["BOSON640"])
+        
+        self.backendManager.cameras["OV64B"].setTXPipeline()
+        self.backendManager.cameras["BOSON640"].setTXPipeline()
 
+        self.backendManager.cameras["OV64B"].setRXPipeline()
+        self.backendManager.cameras["BOSON640"].setRXPipeline()
+        
+        self.backendManager.cameras["OV64B"].initialize()
+        self.backendManager.cameras["OV64B"].initializeStream(self.getProcessIds())
+
+        self.backendManager.cameras["BOSON640"].initialize()
+        self.backendManager.cameras["BOSON640"].initializeStream(self.getProcessIds())
+
+        self.backendManager.cameras["OV64B"].startRXPipeline()
+        self.backendManager.cameras["BOSON640"].startRXPipeline()
+
+
+    def capture(self):
+        rgb_img = self.backendManager.cameras["OV64B"].backend.captureFrame()
+        infrared_img = self.backendManager.cameras["BOSON640"].backend.captureFrame()
+        return rgb_img, infrared_img
+        
+    def terminate(self):
+        self.backendManager.cameras["OV64B"].closeRXPipeline()
+        self.backendManager.cameras["BOSON640"].closeRXPipeline()
+
+        self.backendManager.cameras["OV64B"].terminate()
+        self.backendManager.cameras["BOSON640"].terminate()
 
 class Boson640(Camera):
     def __init__(self):
-        super().__init__("BOSON640", "rb5")
-        self.gstreamer_pipeline = None
-        self.backend = RB5Backend()
-        
+        super().__init__("BOSON640")
+        self.backend = GStreamerCamera(self.name)
+        self.RX_TEMPLATE = Template(" ! ".join((
+            "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
+            "rtph264depay",
+            "avdec_h264",
+            "videoconvert",
+            "video/x-raw,format=BGR",
+            "appsink drop=true max-buffers=1 sync=false"
+        )))
+        self.TX_TEMPLATE = Template(" ! ".join((
+            "gst-launch-1.0 v4l2src device=/dev/video0 io-mode=2",
+            "video/x-raw,format=NV12,width=640,height=512,framerate=30/1",
+            "videoconvert ! video/x-raw,format=I420",
+            "x264enc tune=zerolatency speed-preset=veryfast bitrate=2500 key-int-max=60 bframes=0 byte-stream=true",
+            "h264parse",
+            "video/x-h264,stream-format=byte-stream,alignment=au",
+             "rtph264pay pt=96 mtu=1200 config-interval=1",
+             "udpsink host=$client port=$port sync=false async=false"
+        )))
+    
+    
+    def setPort(self, port):
+        self.backend.port = port
 
-    def setGstreamerPipeline(self, pipeline: Optional[str] = None):
+    def setTXPipeline(self, pipeline: Template | str | None = None):
         if pipeline:
-            self.gstreamer_pipeline = pipeline
+            self.backend.setTXPipeline(pipeline)
         else:
-            pipeline = f"nohup setsid gst-launch-1.0 -v v4l2src device=/dev/video0 io-mode=2 ! video/x-raw,format=NV12,width=640,height=512,framerate=30/1 ! videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=veryfast bitrate=2500 key-int-max=60 bframes=0 byte-stream=true ! h264parse ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay pt=96 mtu=1200 config-interval=1 ! udpsink host=192.168.2.225 port=5000 sync=false async=false"
-            self.gstreamer_pipeline = pipeline
+            self.backend.setTXPipeline(self.TX_TEMPLATE)
+
+       
+
+    def setRXPipeline(self, pipeline: Template | str | None = None):
+        if pipeline:
+            self.backend.setRXPipeline(pipeline)
+        else:
+            self.backend.setRXPipeline(self.RX_TEMPLATE)
+    
+    def startRXPipeline(self):
+        self.backend.startRXPipeline()
+
+    def captureFrame(self):
+       self.backend.captureFrame()
+
+    def closeRXPipeline(self):
+        self.backend.closeRXPipeline()
+       
 
     def initialize(self):
-        self.setGstreamerPipeline()
-        if self.backend and isinstance(self.backend, RB5Backend):
-            self.backend.gstreamer_pipeline = self.gstreamer_pipeline
-            self.backend.initialize()
-            self.backend.initializeStream()
+        self.backend.initialize()
+    
+    def initializeStream(self, pids):
+        self.backend.initializeStream(pids)
+
+    def terminate(self):
+        self.backend.terminate()
+
+    
+       
 
 
 class OV64B(Camera):
     def __init__(self):
-        super().__init__("OV64B", "rb5")
-        self.gstreamer_pipeline = None
-        self.backend = RB5Backend()
+        super().__init__("OV64B")
+        self.backend = GStreamerCamera(self.name)
+        self.RX_TEMPLATE = Template(" ! ".join((
+            "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
+            "rtph264depay",
+            "avdec_h264",
+            "videoconvert",
+            "video/x-raw,format=BGR",
+            "appsink drop=true max-buffers=1 sync=false"
+        )))
+        self.TX_TEMPLATE = Template(" ! ".join((
+            "gst-pipeline-app -e qtiqmmfsrc name=qmmf",
+             "video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1",
+            "videoconvert",
+            "video/x-raw,format=I420",
+            "x264enc tune=zerolatency speed-preset=veryfast bitrate=6000 key-int-max=60 bframes=0 byte-stream=true",
+            "h264parse",
+            "video/x-h264,stream-format=byte-stream,alignment=au",
+            "rtph264pay pt=96 mtu=1200 config-interval=1",
+            "udpsink host=$client port=$port sync=false async=false"
+        )))
+    
+    
+    def setPort(self, port):
+        self.backend.port = port
 
-    def setGstreamerPipeline(self, pipeline: Optional[str] = None):
+    def setTXPipeline(self, pipeline: Template | str | None = None):
         if pipeline:
-            self.gstreamer_pipeline = pipeline
+            self.backend.setTXPipeline(pipeline)
         else:
-            pipeline = f"nohup setsid gst-pipeline-app -e qtiqmmfsrc name=qmmf ! video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1 ! videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=veryfast bitrate=6000 key-int-max=60 bframes=0 byte-stream=true ! h264parse ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay pt=96 mtu=1200 config-interval=1 ! udpsink host={self.src_addr} port=6000 sync=false async=false"
-            self.gstreamer_pipeline = pipeline
+            self.backend.setTXPipeline(self.TX_TEMPLATE)
+
+    
+    def startRXPipeline(self):
+        self.backend.startRXPipeline()
+
+    def setRXPipeline(self, pipeline: Template | str | None = None):
+        if pipeline:
+            self.backend.setRXPipeline(pipeline)
+        else:
+            self.backend.setRXPipeline(self.RX_TEMPLATE)
+
+    def captureFrame(self):
+       self.backend.captureFrame()
+
+    def closeRXPipeline(self):
+        self.backend.closeRXPipeline()
+       
 
     def initialize(self):
-        self.setGstreamerPipeline()
-        if self.backend and isinstance(self.backend, RB5Backend):
-            self.backend.gstreamer_pipeline = self.gstreamer_pipeline
-            self.backend.initialize()
-            self.backend.initializeStream()
+        self.backend.initialize()
+    
+    def initializeStream(self, pids):
+        self.backend.initializeStream(pids)
 
+    def terminate(self):
+        self.backend.terminate()
+       
+
+    
 
 if __name__ == "__main__":
-    hadron_instance = Hadron640R()
-    hadron_instance.infrared.setConnection(
-        "192.168.2.225", "192.168.2.230", "root", "oelinux123"
-    )
-    hadron_instance.rgb.setConnection(
-        "192.168.2.225", "192.168.2.230", "root", "oelinux123"
-    )
-    hadron_instance.initialize()
+    hadrond640 = Hadron640R()
+    hadrond640.setConnection("192.168.2.225", "192.168.2.237", "root", "oelinux123")
+    hadrond640.initialize()
 
+    img1, img2 = hadrond640.capture()
+    import cv2
+    cv2.imwrite('image1.jpg', img1)
+    cv2.imwrite('image2.jpg', img2)
+    hadrond640.terminate()
+    
+    #hadrond640.terminate()
+   

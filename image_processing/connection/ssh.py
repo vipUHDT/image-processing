@@ -31,14 +31,17 @@ class SSH_Controller():
             self.client.close()
             self.is_connected = False
         
-    def run_cmd(self, cmd: str) -> tuple[paramiko.channel.ChannelStdinFile, paramiko.channel.ChannelFile, paramiko.channel.ChannelStderrFile]:
+    def run_cmd(self, cmd: str, background: bool = False) -> tuple[paramiko.channel.ChannelStdinFile, paramiko.channel.ChannelFile, paramiko.channel.ChannelStderrFile] | None:
         if (self.is_connected):
+            if background:
+                cmd = f"nohup setsid {cmd}"
             stdin, stdout, stderr = self.client.exec_command(cmd, get_pty=True)
             return stdin, stdout, stderr
         else:
             LOGGER.warn(f"Unable to execute {cmd}. \n{self.src_device} is not connected to {self.target_device} <{self.remote_addr}>.")
+            return None
     
-    def parse_cmd_output(self, cmd_output: tuple[paramiko.channel.ChannelStdinFile, paramiko.channel.ChannelFile, paramiko.channel.ChannelStderrFile]) -> list[str]:
+    def parse_cmd_output(self, cmd_output) -> list[str]:
         stdin, stdout, stderr = cmd_output
         parsed_output = []
         for line in stdout:  

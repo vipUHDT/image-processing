@@ -13,7 +13,7 @@ class CameraBackend(ABC):
         ...
 
     @abstractmethod
-    def setConnection(self, remote_addr: str, username: str, password: str) -> None:
+    def setConnection(self, client: str, host: str, username: str, password: str) -> None:
         ...
 
     @abstractmethod
@@ -21,13 +21,13 @@ class CameraBackend(ABC):
         ...
 
 class Camera(ABC):
-    def __init__(self, name: str, backend: str):
+    def __init__(self, name: str):
         self.name = name
-        self.backend : Optional[CameraBackend] = self.getBackend(backend)
+        self.backend = None
         self.resolution = None
         self.gstreamer_pipeline = None
-        self.src_addr : None | str = None
-        self.remote_addr : None | str = None
+        self.client : None | str = None
+        self.host : None | str = None
         self.username : None | str = None
         self.password : None | str = None
 
@@ -47,10 +47,10 @@ class Camera(ABC):
 
         
     
-    def setConnection(self, src_addr, remote_addr, username, password):
-        self.src_addr, self.remote_addr, self.username, self.password = src_addr, remote_addr, username, password
+    def setConnection(self, client, host , username, password):
+        self.client, self.host, self.username, self.password = client, host, username, password
         if self.backend:
-            self.backend.setConnection(remote_addr, username, password)
+            self.backend.setConnection(client, host, username, password)
 
     def connect(self):
         if self.backend and self.remote_addr and self.username and self.password:
@@ -60,7 +60,10 @@ class Camera(ABC):
     def initialize(self):
         if (self.backend):
             self.backend.initialize()
-    
-    def capture_frame(self):
-        return 0
+   
+    @abstractmethod
+    def captureFrame(self):
+        ...
 
+def constructGstreamerPipeline(pipeline: tuple) -> str:
+    return ' ! '.join(pipeline)

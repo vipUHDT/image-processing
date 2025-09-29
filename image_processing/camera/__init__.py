@@ -1,1 +1,1 @@
-from .camera import Camera, CameraBackend, constructGstreamerPipeline
+from .camera import Camera, CameraBackend, CameraMetadata, constructGstreamerPipeline

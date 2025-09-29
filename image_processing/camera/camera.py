@@ -1,5 +1,6 @@
 from typing import Optional
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import logging
 LOGGER = logging.getLogger(__name__)
 
@@ -20,8 +21,16 @@ class CameraBackend(ABC):
     def connect(self) -> None:
         ...
 
+@dataclass
+class CameraMetadata:
+    sensor_width: int
+    sensor_height: int
+    image_width: int
+    image_height: int
+    focal_length: int
+
 class Camera(ABC):
-    def __init__(self, name: str):
+    def __init__(self, name: str, metadata: Optional[CameraMetadata] = None):
         self.name = name
         self.backend = None
         self.resolution = None
@@ -30,6 +39,7 @@ class Camera(ABC):
         self.host : None | str = None
         self.username : None | str = None
         self.password : None | str = None
+        self.metadata: Optional[CameraMetadata] = metadata
 
     def setBackend(self, backend):
         backends = ["rb5"]

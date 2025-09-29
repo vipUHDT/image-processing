@@ -6,3 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "image-processing"
 version = "0.1.0"
 description = "Internal package used by UHDT for image processing"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["image_processing*"]

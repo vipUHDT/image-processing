@@ -53,35 +53,39 @@ class Detector:
         if results and self.backend:
             if self.backend == "sahi":
                 results.export_visuals(export_dir=export_dir, file_name=file_name)
-    
+
     def parseResults(self, results: PredictionResult, padding=0) -> list[Detection]:
         detections: list[Detection] = []
         if results and self.backend:
             if self.backend == "sahi":
+                image = np.array(results.image)
+                H, W = image.shape[:2]
                 for object_prediction in results.object_prediction_list:
                     predicted_classes = object_prediction.category.name
                     confidence_scores = float(object_prediction.score.value)
-                    bounding_box = self.getBoundingBox(object_prediction)
-                    image = np.array(results.image)
-                    width, height = results.image_width, results.image_height
-                    adjusted_bounding_box = self.adjustBoundingBox(bounding_box, padding, width, height)
-                    cropped_image = self.cropDetection(image, adjusted_bounding_box)
-                    center_x, center_y = self.getBoundingBoxCenter(adjusted_bounding_box)
-                    cropped_image = self.cropDetection(image, adjusted_bounding_box)
-                    detection = Detection(predicted_classes,confidence_scores, (center_x, center_y), image, cropped_image)
+                    op_full = object_prediction.get_shifted_object_prediction()
+                    x1, y1, x2, y2 = map(int, op_full.bbox.to_xyxy())
+                    if padding:
+                        x1 -= padding; y1 -= padding
+                        x2 += padding; y2 += padding
+                    x1 = max(0, min(x1, W - 1))
+                    y1 = max(0, min(y1, H - 1))
+                    x2 = max(0, min(x2, W))
+                    y2 = max(0, min(y2, H))
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    cropped_image = image[y1:y2, x1:x2]
+                    center_x = (x1 + x2) / 2.0
+                    center_y = (y1 + y2) / 2.0
+                    detection = Detection(
+                        predicted_classes,
+                        confidence_scores,
+                        (int(center_x), int(center_y)),
+                        image,
+                        cropped_image
+                    )
                     detections.append(detection)
         return detections
-
-
-
-    """
-    def saveCroppedDetections(self, results: PredictionResult):
-        if results and self.backend:
-            if self.backend == "sahi":
-                for i in range(len(results.object_prediction_list)):
-                    predicted_classes = results.object_prediction_list[i].category
-                    confidence_scores = results.object_prediction_list[i].score.value
-    """
 
     def run(self, image: cv2.typing.MatLike) -> Optional[PredictionResult]:
         if self.backend == "sahi" and self.sahi_config:
@@ -104,13 +108,11 @@ class Detector:
                     match_metric=self.sahi_config.postprocess_match_metric,
                     class_agnostic=self.sahi_config.postprocess_class_agnostic
                 )
-                
                 result = get_prediction(
                     image=image,
                     detection_model=self.sahi_config.detection_model,
                     postprocess=postprocess_type,
                 )
-
             return result
     
     def cropDetection(self, image: cv2.typing.MatLike, bounding_box: tuple[int, int, int, int]) -> cv2.typing.MatLike:

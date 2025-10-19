@@ -122,7 +122,7 @@ class Boson640(Camera):
         self.backend.startRXPipeline()
 
     def captureFrame(self):
-       self.backend.captureFrame()
+       return self.backend.captureFrame()
 
     def closeRXPipeline(self):
         self.backend.closeRXPipeline()
@@ -186,7 +186,7 @@ class OV64B(Camera):
             self.backend.setRXPipeline(self.RX_TEMPLATE)
 
     def captureFrame(self):
-       self.backend.captureFrame()
+       return self.backend.captureFrame()
 
     def closeRXPipeline(self):
         self.backend.closeRXPipeline()

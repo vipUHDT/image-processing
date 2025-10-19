@@ -92,6 +92,7 @@ class GStreamerCamera():
         else:
             if self.remote:
                 if self.tx_pipeline:
+                    print(self.tx_pipeline)
                     self.remote.initializeStream(self.tx_pipeline)
                     self.pid = self.getGstreamerProcessID(process_ids)
 

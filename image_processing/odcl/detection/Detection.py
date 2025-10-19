@@ -5,6 +5,10 @@ from sahi.prediction import ObjectPrediction, PredictionResult
 from .SahiConfig import SahiConfig
 from typing import Optional
 import numpy as np
+from image_processing.results import ModelResult
+from image_processing.tools.hash import hashFile
+
+
 class Detection:
     def __init__(
         self,
@@ -40,52 +44,81 @@ class Detection:
 
     def get_image(self):
         return self.image
+
+
+class DetectionModelResult(ModelResult):
+    def __init__(self, model_name: Optional[str] = None, model_hash: Optional[str] = None, image: Optional[cv2.typing.MatLike] = None):
+        super().__init__(model_name, model_hash)
+        self.image = image
+        self.detections = []
     
+    def add(self, detection: Detection):
+        self.detections.append(detection)
+
+
 class Detector:
     def __init__(self, backend="sahi"):
         self.backend = backend
         self.sahi_config: SahiConfig | None = None
+        self.model = None
 
+    def initializeModel(self):
+        h, w = (64, 64)
+        dummy = np.zeros((h, w, 3), dtype=np.uint8)
+        _ = self.run(dummy)
+        
     def setSahiConfig(self, sahi_config: SahiConfig):
         self.sahi_config = sahi_config
+        self.model_path = sahi_config.detection_model.model_path
+        if (self.model_path):
+            self.model_hash = hashFile(self.model_path)
 
-    def exportVisuals(self, results: PredictionResult, export_dir: str = os.getcwd(), file_name: str = "visual.png"):
+    def exportVisuals(
+        self,
+        results: PredictionResult,
+        export_dir: str = os.getcwd(),
+        file_name: str = "visual.png",
+    ):
         if results and self.backend:
             if self.backend == "sahi":
                 results.export_visuals(export_dir=export_dir, file_name=file_name)
 
-    def parseResults(self, results: PredictionResult, padding=0) -> list[Detection]:
+    def parseResults(self, results: PredictionResult, padding=0) -> tuple[DetectionModelResult, list[Detection]]:
         detections: list[Detection] = []
+        detection_model_result = DetectionModelResult(self.model_path, self.model_hash)
         if results and self.backend:
             if self.backend == "sahi":
                 image = np.array(results.image)
                 H, W = image.shape[:2]
+                detection_model_result.image = image
                 for object_prediction in results.object_prediction_list:
                     predicted_classes = object_prediction.category.name
                     confidence_scores = float(object_prediction.score.value)
-                    op_full = object_prediction.get_shifted_object_prediction()
-                    x1, y1, x2, y2 = map(int, op_full.bbox.to_xyxy())
-                    if padding:
-                        x1 -= padding; y1 -= padding
-                        x2 += padding; y2 += padding
-                    x1 = max(0, min(x1, W - 1))
-                    y1 = max(0, min(y1, H - 1))
-                    x2 = max(0, min(x2, W))
-                    y2 = max(0, min(y2, H))
-                    if x2 <= x1 or y2 <= y1:
-                        continue
-                    cropped_image = image[y1:y2, x1:x2]
-                    center_x = (x1 + x2) / 2.0
-                    center_y = (y1 + y2) / 2.0
-                    detection = Detection(
-                        predicted_classes,
-                        confidence_scores,
-                        (int(center_x), int(center_y)),
-                        image,
-                        cropped_image
+                    shifted_object_prediction = (
+                        object_prediction.get_shifted_object_prediction()
                     )
-                    detections.append(detection)
-        return detections
+                    bounding_box = self.getBoundingBox(shifted_object_prediction)
+
+
+                    if bounding_box:
+                        if padding:
+                            bounding_box = self.adjustBoundingBox(
+                                bounding_box, padding, W, H
+                            )
+
+                        cropped_image = self.cropDetection(image, bounding_box)
+                        detection_center = self.getBoundingBoxCenter(bounding_box)
+
+                        detection = Detection(
+                            predicted_classes,
+                            confidence_scores,
+                            detection_center,
+                            image,
+                            cropped_image,
+                        )
+                        detection_model_result.add(detection)
+                        detections.append(detection)
+        return detection_model_result, detections
 
     def run(self, image: cv2.typing.MatLike) -> Optional[PredictionResult]:
         if self.backend == "sahi" and self.sahi_config:
@@ -103,10 +136,12 @@ class Detector:
                     postprocess_class_agnostic=self.sahi_config.postprocess_class_agnostic,
                 )
             else:
-                postprocess_type = self.sahi_config.postprocess_types[self.sahi_config.postprocess_type](
+                postprocess_type = self.sahi_config.postprocess_types[
+                    self.sahi_config.postprocess_type
+                ](
                     match_threshold=self.sahi_config.postprocess_match_threshold,
                     match_metric=self.sahi_config.postprocess_match_metric,
-                    class_agnostic=self.sahi_config.postprocess_class_agnostic
+                    class_agnostic=self.sahi_config.postprocess_class_agnostic,
                 )
                 result = get_prediction(
                     image=image,
@@ -114,8 +149,10 @@ class Detector:
                     postprocess=postprocess_type,
                 )
             return result
-    
-    def cropDetection(self, image: cv2.typing.MatLike, bounding_box: tuple[int, int, int, int]) -> cv2.typing.MatLike:
+
+    def cropDetection(
+        self, image: cv2.typing.MatLike, bounding_box: tuple[int, int, int, int]
+    ) -> cv2.typing.MatLike:
         """
         Crop a region of interest from an image using a bounding box.
 
@@ -133,10 +170,10 @@ class Detector:
             bounding box.
         """
         x_min, y_min, x_max, y_max = bounding_box
-        cropped_img = image[x_min:x_max, y_min:y_max]
+        cropped_img = image[y_min:y_max, x_min:x_max]
         return cropped_img
 
-    def getBoundingBox(self, object_prediction: ObjectPrediction | None) -> list[float]:
+    def getBoundingBox(self, object_prediction: ObjectPrediction | None) -> Optional[tuple[int, int, int, int]]:
         """
         Return the bounding box for a given object prediction in
         `[x_min, y_min, x_max, y_max]` format.
@@ -150,16 +187,22 @@ class Detector:
                 from which to extract the bounding box.
 
         Returns:
-            list[float]: A list of four float values representing the bounding box
+            Optional[tuple[int, int, int, int]]: A list of four float values representing the bounding box
             coordinates `[x_min, y_min, x_max, y_max]`. Returns an empty list if
             no valid bounding box can be obtained.
         """
         if self.backend:
-            if self.backend == "sahi" and isinstance(object_prediction, ObjectPrediction):
-                return object_prediction.bbox.to_voc_bbox()
-        return []
-    
-    def getBoundingBoxCenter(self, bounding_box: list[float]) -> tuple[int | None, int | None]:
+            if self.backend == "sahi" and isinstance(
+                object_prediction, ObjectPrediction
+            ):
+                bounding_box =  object_prediction.bbox.to_xyxy()
+                if bounding_box:
+                    return int(bounding_box[0]), int(bounding_box[1]), int(bounding_box[2]), int(bounding_box[3])
+        return None
+
+    def getBoundingBoxCenter(
+        self, bounding_box: tuple[int, int, int, int]
+    ) -> tuple[int, int]:
         """
         Compute the center point of an object's bounding box.
 
@@ -183,9 +226,16 @@ class Detector:
                 min_x, min_y, max_x, max_y = bounding_box
                 center_x = int((min_x + max_x) / 2)
                 center_y = int((min_y + max_y) / 2)
-        return center_x, center_y
+                return center_x, center_y
+        return (-1, -1)
 
-    def adjustBoundingBox(self, bounding_box, padding, img_width, img_height):
+    def adjustBoundingBox(
+        self,
+        bounding_box: tuple[int, int, int, int],
+        padding: int,
+        img_width: int,
+        img_height: int,
+    ) -> tuple[int, int, int, int]:
         """
         Expand a bounding box by a given padding while ensuring it stays
         within image boundaries.

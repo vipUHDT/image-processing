@@ -4,51 +4,100 @@ from .SahiConfig import SahiConfig
 from image_processing.camera import *
 from image_processing.odcl.Localize import *
 from .Detection import *
-from queue import Queue
+from queue import Queue, Empty
 from image_processing import QueuedImage, PlatformState
+from sahi.models.base import DetectionModel
+from .SahiConfig import SahiDetectionModel
 import threading
+from typing import Optional
 
 class DetectionManager:
-    def __init__(self, detection_backend, detector: Detector, camera_metadata: CameraMetadata | None = None, georeference_engine: Georeference_Engine | None = None):
+    def __init__(self, detection_model_config: Optional[ModelConfig]= None, camera_metadata: CameraMetadata | None = None, georeference_engine: Georeference_Engine | None = None):
+        self.detection_model_config = detection_model_config
         self.image_queue = Queue()
         self.detections_queue = Queue()
         self.results_queue = Queue()
         self.gps_queue = Queue()
-        self.active_threads: list[threading.Thread] = []
+
         self.detections = []
+        self.results = []
+        
+        self.active_threads: list[threading.Thread] = []
         self.workers = 5
-        self.max_concurrent_images = 10
+        self.max_concurrent_queue_process = 10
+        
         self.duplicate_threshold = 2
-        self.detector: Detector | None = detector
-        self.detection_backend = detection_backend
-        self.sahi_config: SahiConfig | None = None
-        self.platform_state = PlatformState()
         self.camera: CameraMetadata | None = camera_metadata
         self.georeference_engine = georeference_engine
         self.terminated = False
 
-        if detector:
-            detector.initializeModel()
+
+    def update(self):
+        self.updateDetections()
+        self.updateResults()
+
+    
+    def updateResults(self):
+        try:
+            result = self.results_queue.get_nowait()
+        except Empty:
+            pass
+        else:
+            self.results.append(result)
+
+    def updateDetections(self):
+        try:
+            detection = self.detections_queue.get_nowait()
+        except Empty:
+            pass
+        else:
+            print(detection.gps_coords)
+            self.gps_queue.put(detection.gps_coords)
+            self.detections.append(detection)
+
+    
+    def getGPS(self):
+        return self.gps_queue.get()
+
+
 
     
     def queueImage(self, image: QueuedImage):
         self.image_queue.put(image)
 
-    def processQueue(self):
+    def processQueuedImages(self):
         self.pruneThreads()
         if (self.image_queue.qsize() > 0):
-            for i in range(self.max_concurrent_images):
-                if len(self.active_threads) < self.max_concurrent_images:
-                    queued_image = self.image_queue.get()
-                    if queued_image:
-                        t = threading.Thread(
-                            target=self.processQueuedImage,
-                            args=((queued_image,)),
-                            daemon=True,
-                            name="DetectionManager"
-                        )
-                        t.start()
-                        self.active_threads.append(t)
+            for i in range(self.workers):
+                if len(self.active_threads) < self.workers:
+                    try:
+                        queued_image = self.image_queue.get_nowait()
+                    except Empty:
+                        break
+                    else:
+                        if queued_image:
+                            t = threading.Thread(
+                                target=self.processQueuedImage,
+                                args=((queued_image,)),
+                                daemon=True,
+                                name="DetectionManager"
+                            )
+                            t.start()
+                            self.active_threads.append(t)
+
+
+    def processGPSQueue(self):
+        gps_coords = []
+        while (self.gps_queue.qsize() > 0):
+            try:
+                gps_info = self.gps_queue.get_nowait()
+            except Empty:
+                break
+            else:
+                gps_coords.append(gps_info)
+                if len(gps_coords) > 10:
+                    break
+        return gps_coords
 
 
     def pruneThreads(self):
@@ -62,26 +111,18 @@ class DetectionManager:
     def addResult(self, result: DetectionModelResult):
         self.results_queue.put(result)
 
-    def addDetection(self, detection: Detection):
+    def addDetection(self, detection: Detection, platform_state: PlatformState):
         if isinstance(self.georeference_engine, Georeference_Engine) and isinstance(self.camera, CameraMetadata):
-            detection.gps_coords = self.georeference(detection.pixel_coords, self.platform_state, self.camera, self.georeference_engine.altitude_offset)
+            detection.gps_coords = self.georeference(detection.pixel_coords, platform_state, self.camera, self.georeference_engine.altitude_offset)
         
         if not self.checkForDuplicates(detection):
             self.gps_queue.put(detection.gps_coords)
-            self.detections.append(detection)
+            self.detections_queue.put(detection)
     
     def checkForDuplicates(self, detection: Detection):
         for existing_detection in self.detections:
             if detection.gps_coords and abs(haversine(detection.gps_coords[0], detection.gps_coords[1], existing_detection.gps_coords[0], existing_detection.gps_coords[1])) < self.duplicate_threshold:
                 return True
-    
-    def setSahiConfig(self, sahi_config: SahiConfig):
-        self.sahi_config = sahi_config
-
-    def setBackend(self, detection_backend):
-        valid_backends = ["sahi"]
-        if detection_backend in valid_backends:
-            self.detection_backend = detection_backend
     
     def setGeoreferenceEngine(self, georeference_backend, altitude_offset = 0):
         self.georeference_engine = Georeference_Engine(georeference_backend, altitude_offset)
@@ -89,38 +130,21 @@ class DetectionManager:
     def georeference(self, target_pixel_coordinates, platform_state, camera_metadata, altitude_offset):
         if self.georeference_engine:
             return self.georeference_engine.georeference(target_pixel_coordinates, platform_state, camera_metadata, altitude_offset)
-
-    def initializeDetector(self):
-        self.detector = Detector(self.detection_backend)
-        if self.sahi_config:
-            self.detector.setSahiConfig(self.sahi_config)
     
-    def addDetections(self, detections: list[Detection]):
+    def addDetections(self, detections: list[Detection], platform_state: PlatformState):
         for detection in detections:
-            self.addDetection(detection)
+            self.addDetection(detection, platform_state)
 
     def ODCL(self, image, platform_state):
-        self.platform_state.altitude, self.platform_state.latitude, self.platform_state.longitude, self.platform_state.pitch, self.platform_state.yaw, self.platform_state.roll = astuple(platform_state)
-        if isinstance(self.detector, Detector):
-            results = self.detector.run(image)
+        detector = Detector(self.detection_model_config)
+        detector.loadModel()
+        if isinstance(detector, Detector):
+            results = detector.run(image)
             if isinstance(results, PredictionResult):
-                detection_model_result, detections = self.detector.parseResults(results)
+                detection_model_result, detections = detector.parseResults(results)
                 self.addResult(detection_model_result)
-                self.addDetections(detections)
+                self.addDetections(detections, platform_state)
                 
-    def processGPSQueue(self):
-        gps_coords = []
-        while (self.gps_queue.qsize() > 0):
-            gps_coords.append(self.gps_queue.get())
-            if len(gps_coords) > 10:
-                break
-        return gps_coords
-
-
-
-        
-
-
     def getAllDetections(self):
         return self.detections
 

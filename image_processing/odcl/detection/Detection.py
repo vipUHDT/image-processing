@@ -7,6 +7,8 @@ from typing import Optional
 import numpy as np
 from image_processing.results import ModelResult
 from image_processing.tools.hash import hashFile
+from sahi.models.base import DetectionModel
+from .SahiConfig import SahiDetectionModel, ModelConfig
 
 
 class Detection:
@@ -57,21 +59,37 @@ class DetectionModelResult(ModelResult):
 
 
 class Detector:
-    def __init__(self, backend="sahi"):
-        self.backend = backend
-        self.sahi_config: SahiConfig | None = None
+    def __init__(self, model_config: Optional[ModelConfig]  = None):
+        self.backend = None
+        self.model_config: ModelConfig | None = None
         self.model = None
+        self.model_path = None
+        self.model_hash = None
+
+        self.setModelConfig(model_config)
+    
+    def setModelConfig(self, model_config: Optional[ModelConfig]):
+        self.model_config = model_config
+        if self.model_config and isinstance(self.model_config.backend_config, SahiConfig):
+            self.backend = "sahi"
+        else:
+            self.backend = None
+       
+    def loadModel(self):
+        if isinstance(self.model_config, ModelConfig):
+            if self.backend == "sahi":
+                self.model = SahiDetectionModel(
+                    model_type = self.model_config.model_type,
+                    model_path = self.model_config.model_path,
+                    confidence_threshold = self.model_config.confidence_threshold,
+                    device = self.model_config.device
+                )
 
     def initializeModel(self):
         h, w = (64, 64)
         dummy = np.zeros((h, w, 3), dtype=np.uint8)
         _ = self.run(dummy)
-        
-    def setSahiConfig(self, sahi_config: SahiConfig):
-        self.sahi_config = sahi_config
-        self.model_path = sahi_config.detection_model.model_path
-        if (self.model_path):
-            self.model_hash = hashFile(self.model_path)
+
 
     def exportVisuals(
         self,
@@ -121,34 +139,38 @@ class Detector:
         return detection_model_result, detections
 
     def run(self, image: cv2.typing.MatLike) -> Optional[PredictionResult]:
-        if self.backend == "sahi" and self.sahi_config:
-            if self.sahi_config.slice:
-                result = get_sliced_prediction(
-                    image,
-                    detection_model=self.sahi_config.detection_model,
-                    slice_height=self.sahi_config.slice_height,
-                    slice_width=self.sahi_config.slice_width,
-                    overlap_height_ratio=self.sahi_config.overlap_height_ratio,
-                    overlap_width_ratio=self.sahi_config.overlap_width_ratio,
-                    perform_standard_pred=self.sahi_config.perform_standard_pred,
-                    postprocess_match_metric=self.sahi_config.postprocess_match_metric,
-                    postprocess_match_threshold=self.sahi_config.postprocess_match_threshold,
-                    postprocess_class_agnostic=self.sahi_config.postprocess_class_agnostic,
-                )
-            else:
-                postprocess_type = self.sahi_config.postprocess_types[
-                    self.sahi_config.postprocess_type
-                ](
-                    match_threshold=self.sahi_config.postprocess_match_threshold,
-                    match_metric=self.sahi_config.postprocess_match_metric,
-                    class_agnostic=self.sahi_config.postprocess_class_agnostic,
-                )
-                result = get_prediction(
-                    image=image,
-                    detection_model=self.sahi_config.detection_model,
-                    postprocess=postprocess_type,
-                )
-            return result
+        if self.model_config:
+            if self.backend == "sahi":
+                sahi_config = self.model_config.backend_config
+                if isinstance(sahi_config, SahiConfig):
+                    if sahi_config.slice:
+                        result = get_sliced_prediction(
+                            image,
+                            detection_model=self.model,
+                            slice_height=sahi_config.slice_height,
+                            slice_width=sahi_config.slice_width,
+                            overlap_height_ratio=sahi_config.overlap_height_ratio,
+                            overlap_width_ratio=sahi_config.overlap_width_ratio,
+                            perform_standard_pred=sahi_config.perform_standard_pred,
+                            postprocess_match_metric=sahi_config.postprocess_match_metric,
+                            postprocess_match_threshold=sahi_config.postprocess_match_threshold,
+                            postprocess_class_agnostic=sahi_config.postprocess_class_agnostic,
+                        )
+                    else:
+                        postprocess_type = sahi_config.postprocess_types[
+                            sahi_config.postprocess_type
+                        ](
+                            match_threshold=sahi_config.postprocess_match_threshold,
+                            match_metric=sahi_config.postprocess_match_metric,
+                            class_agnostic=sahi_config.postprocess_class_agnostic,
+                        )
+                        result = get_prediction(
+                            image=image,
+                            detection_model=self.model,
+                            postprocess=postprocess_type,
+                        )
+                    return result
+        return None
 
     def cropDetection(
         self, image: cv2.typing.MatLike, bounding_box: tuple[int, int, int, int]

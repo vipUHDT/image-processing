@@ -57,7 +57,10 @@ class DetectionManager:
 
     
     def getGPS(self):
-        return self.gps_queue.get()
+        if self.gps_queue.qsize() > 0:
+            return self.gps_queue.get()
+        else:
+            return None
 
 
 

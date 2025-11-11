@@ -676,4 +676,7 @@ Cargo.lock
 ### dotenv ###
 .env
 
+### macOS ###
+.DS_STORE
+
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,pycharm,images,ros2,ros,c++,c,clion,eclipse,diskimage,rust

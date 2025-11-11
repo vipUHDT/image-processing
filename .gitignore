@@ -1,3 +1,6 @@
+docs/build/
+docs/static/
+docs/autoapi
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,pycharm,images,ros2,ros,c++,c,clion,eclipse,diskimage,rust
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,pycharm,images,ros2,ros,c++,c,clion,eclipse,diskimage,rust
 

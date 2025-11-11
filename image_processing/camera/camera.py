@@ -2,6 +2,7 @@ from typing import Optional
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
+import time
 LOGGER = logging.getLogger(__name__)
 
 class CameraBackend(ABC):
@@ -64,7 +65,10 @@ class Camera(ABC):
 
     def connect(self):
         if self.backend and self.remote_addr and self.username and self.password:
-            self.backend.setConnection(self.remote_addr, self.username, self.password)  
+            self.backend.setConnection(self.remote_addr, self.username, self.password)
+            time.sleep(2)
+            if not self.backend.connected:
+                print("Unable to connect to camera.")
 
     
     def initialize(self):

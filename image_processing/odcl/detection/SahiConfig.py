@@ -8,7 +8,7 @@ from sahi.postprocess.combine import (
 )
 
 from dataclasses import dataclass, field
-from typing import Dict, Type, Any, overload
+from typing import Dict, Type, Any, overload, Optional
 from sahi.models.base import DetectionModel
 from sahi import AutoDetectionModel
 
@@ -89,7 +89,6 @@ class SahiDetectionModel(AutoDetectionModel):
 
 @dataclass
 class SahiConfig:
-    detection_model: DetectionModel
     slice: bool = True
     slice_height: int = 640
     slice_width: int = 640
@@ -109,4 +108,13 @@ class SahiConfig:
     postprocess_match_threshold: float = 0.5
     postprocess_class_agnostic: bool = True
     single_prediction: bool =True
+
+@dataclass
+class ModelConfig:
+    backend: str
+    model_type: str
+    model_path: str
+    confidence_threshold: float
+    device: str
+    backend_config: Dict[str, str] | SahiConfig
 

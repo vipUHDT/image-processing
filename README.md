@@ -25,6 +25,12 @@ Internal Python package used for UHDT's image processing
    ```bash
    pip install -r requirements-<platform>.txt
    ```
+
+4. Install the image-processing package in editable mode.
+
+```bash
+pip install -e .
+```
   
 ## Installing Pytorch
 

@@ -89,6 +89,36 @@ class SahiDetectionModel(AutoDetectionModel):
 
 @dataclass
 class SahiConfig:
+    """
+    Configuration for image slicing and post-processing used in SAHI inference.
+
+    Parameters
+    ----------
+    slice : bool, default=True
+        Whether to enable image slicing before prediction.
+    slice_height : int, default=640
+        Height of each image slice in pixels.
+    slice_width : int, default=640
+        Width of each image slice in pixels.
+    overlap_height_ratio : float, default=0.11
+        Fractional vertical overlap between adjacent slices.
+    overlap_width_ratio : float, default=0.11
+        Fractional horizontal overlap between adjacent slices.
+    perform_standard_pred : bool, default=True
+        Whether to also perform full-image prediction in addition to sliced inference.
+    postprocess_types : dict of {str: Type[PostprocessPredictions]}
+        Mapping of available post-processing algorithms by name.
+    postprocess_type : str, default="GreedyNMMPostprocess"
+        Name of the post-processing method to use.
+    postprocess_match_metric : str, default="IOU"
+        Metric for merging overlapping predictions (e.g., "IOU", "IOS").
+    postprocess_match_threshold : float, default=0.5
+        Threshold for merging predictions based on the chosen metric.
+    postprocess_class_agnostic : bool, default=True
+        If True, ignore class labels when merging overlapping predictions.
+    single_prediction : bool, default=True
+        Whether to limit output to a single prediction per detected object.
+    """
     slice: bool = True
     slice_height: int = 640
     slice_width: int = 640
@@ -111,6 +141,24 @@ class SahiConfig:
 
 @dataclass
 class ModelConfig:
+    """
+    Model configuration for object-detection inference.
+
+    Parameters
+    ----------
+    backend : str
+        Name of the inference backend (e.g., "onnxruntime", "torch").
+    model_type : str
+        Type or architecture of the model (e.g., "YOLOv8", "EfficientDet").
+    model_path : str
+        Filesystem path or URI to the trained model weights.
+    confidence_threshold : float
+        Minimum confidence score required to retain detections.
+    device : str
+        Compute device to use for inference (e.g., "cuda:0", "cpu").
+    backend_config : dict or SahiConfig
+        Additional backend-specific configuration parameters or SAHI slicing setup.
+    """
     backend: str
     model_type: str
     model_path: str

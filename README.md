@@ -31,6 +31,25 @@ Internal Python package used for UHDT's image processing
 ```bash
 pip install -e .
 ```
+
+## Building Documentation w/ Sphinx
+1. Install `sphinx` and its associated support packages. The requirements.txt file for your platform include these packages.
+
+```bash
+pip install sphinx sphinx-autoapi sphinx-code-tabs sphinx-rtd-theme
+```
+
+2. Change directory into `docs`.
+
+```bash
+cd docs
+```
+
+3. Use `make` to generate the HTML documentation. The home page of the documentation can be accessed at `docs/_build/html/index.html`.
+
+```bash
+make html
+```
   
 ## Installing Pytorch
 
@@ -43,3 +62,4 @@ This is only applicable to systems that have an Nvidia GPU. It is strongly recom
 ### Installing ROCm Drivers (Linux/Windows Systems with AMD GPUs)
 
 ROCm drivers have not been tested for model training.
+

@@ -81,11 +81,8 @@ class GStreamerCamera():
             self.capture.release()
     
     def captureFrame(self):
-        if self.connected:
-            ret, frame = self.capture.read()
-            return frame
-        else:
-            return None
+        ret, frame = self.capture.read()
+        return frame
 
     def initializeStream(self, process_ids, pipeline = None):
         if pipeline:

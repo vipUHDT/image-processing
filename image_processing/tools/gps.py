@@ -1,5 +1,4 @@
 from typing import Optional, Tuple, Dict, Any
-from ublox_gps import UbloxGps
 import serial
 import time
 
@@ -9,6 +8,7 @@ class GPSConnectionError(Exception):
 
 
 class UbloxGPSController:
+    from ublox_gps import UbloxGps
     def __init__(self, port: str = "/dev/ttyACM0", baudrate: int = 38400, timeout: int = 1):
         self.port = port
         self.baudrate = baudrate

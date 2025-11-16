@@ -57,3 +57,14 @@ html_theme_options = {
     'includehidden': True,
     'titles_only': False
 }
+
+latex_engine = "xelatex"
+
+latex_elements = {
+    "papersize": "letterpaper",
+    "pointsize": "11pt",
+    "preamble": r"""
+\usepackage{amsmath}
+\usepackage{graphicx}
+""",
+}

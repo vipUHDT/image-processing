@@ -124,7 +124,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
     return fused_rgb_uint8
 
-
+'''
 fused_result = FuzzyFusion(
         eo_img = cv2.imread('cropped_rgb.png'),
         ir_img = cv2.imread('resized_ir.png'),
@@ -135,7 +135,7 @@ fused_result = FuzzyFusion(
         )
 plt.imshow(fused_result)
 plt.show()
-'''
+
 # Objective metrics
 def entropy(img):
     hist = np.histogram(img.flatten(), bins=256, range=(0, 1))[0]

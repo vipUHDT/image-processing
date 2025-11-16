@@ -81,7 +81,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     def fuse_images(img1, img2, M, N, A, B):
         H, W = img1.shape
         fused = np.zeros_like(img1)
-
+        alpha_map = np.zeros_like(img1)
         for i in range(0, H, M):
             for j in range(0, W, N):
                 Bx = img1[i:i+M, j:j+N]
@@ -94,14 +94,19 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
 
                 var_x = np.var(SBx)
                 var_y = np.var(SBy)
+                # Compute fusion weight based on relative variance
+                alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
+                alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR by lowering min alpha
 
-                if var_x >= var_y:
-                    SBz = SBx
-                else:
-                    SBz = SBy
+                # Blend fuzzy transforms
+                SBz = alpha * SBx + (1 - alpha) * SBy
+
 
                 Bz = inverse_fuzzy(SBz, A, B)
                 fused[i:i+M, j:j+N] = Bz
+                alpha_map[i:i+M, j:j+N] = alpha
+                alpha_block = np.full((M, N), alpha)
+                alpha_map[i:i+M, j:j+N] = alpha_block
 
         return fused
     fused_V = fuse_images(V_visible, infrared, M, N, A, B)

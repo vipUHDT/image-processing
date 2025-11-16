@@ -1,3 +1,36 @@
+"""
+Georeferencing utilities for ODCL detections.
+
+This module provides:
+
+- :class:`Georeference_Engine`, a small wrapper that selects and invokes
+  one of several georeferencing backends (UTM, ENU, azimuthal-equidistant,
+  or a manual flat-earth approximation).
+- Backend functions (:func:`georeference_utm`, :func:`georeference_enu`,
+  :func:`georeference_aeqd`, :func:`georeference_manual`) that convert
+  pixel coordinates in an image into latitude/longitude coordinates using
+  drone pose and camera intrinsics.
+- :func:`haversine`, a helper for computing great-circle distances
+  between two GPS points in meters.
+
+All backends assume a nadir-looking camera and use the standard pinhole
+camera relation:
+
+.. math::
+
+   \\text{FOV} = 2 \\arctan\\left( \\frac{\\text{sensor\\_size}}{2 f} \\right),
+
+and a simple ground-footprint scaling at altitude:
+
+.. math::
+
+   W = 2 h \\tan\\left( \\frac{\\text{FOV}_x}{2} \\right), \\quad
+   H = 2 h \\tan\\left( \\frac{\\text{FOV}_y}{2} \\right),
+
+where :math:`h` is altitude, :math:`f` is focal length, and
+:math:`W, H` are the ground-projected footprint widths in meters.
+"""
+
 import math
 from pyproj import Transformer
 import math
@@ -8,12 +41,56 @@ import pymap3d as pm
 
 
 class Georeference_Engine:
+    """
+    Engine for converting pixel coordinates into GPS coordinates.
+
+    This class selects one of several backend functions for georeferencing
+    (e.g., UTM, ENU, azimuthal-equidistant, or manual) and calls it with
+    a unified interface based on platform state and camera metadata.
+
+    Parameters
+    ----------
+    backend : str
+        Name of the georeferencing backend to use. Must be one of
+        ``"utm"``, ``"enu"``, ``"aeqd"``, or ``"manual"``.
+    altitude_offset : float, optional
+        Offset applied to the drone altitude prior to computing the ground
+        footprint, by default 0.
+
+    Attributes
+    ----------
+    camera_metadata : CameraMetadata or None
+        Optional camera metadata (not directly used in current implementation).
+    backend : callable
+        Selected backend function implementing georeferencing logic.
+    altitude_offset : float
+        Stored altitude offset passed through to the backend.
+    """
     def __init__(self, backend, altitude_offset=0):
         self.camera_metadata = None
         self.backend = self.getBackends(backend)
         self.altitude_offset = altitude_offset
 
     def getBackends(self, backend):
+        """
+        Resolve a backend name into a georeferencing function.
+
+        Parameters
+        ----------
+        backend : str
+            Name of the georeferencing backend (``"utm"``, ``"enu"``,
+            ``"aeqd"``, or ``"manual"``).
+
+        Returns
+        -------
+        callable
+            Backend function implementing the requested georeference method.
+
+        Raises
+        ------
+        ValueError
+            If an unknown backend name is provided.
+        """
         backends = {
             "utm": georeference_utm,
             "enu": georeference_enu,
@@ -34,6 +111,32 @@ class Georeference_Engine:
         camera_metadata: CameraMetadata,
         altitude_offset = 0
     ):
+        """
+        Georeference a pixel coordinate into latitude/longitude.
+
+        This method unpacks platform state and camera metadata into the
+        arguments expected by the configured backend, and returns the
+        resulting GPS coordinates.
+
+        Parameters
+        ----------
+        target_pixel_coordinates : tuple of int
+            Pixel coordinates :math:`(x, y)` of the target in image space.
+        platform_state : PlatformState
+            Platform (drone) state containing altitude, latitude, longitude,
+            pitch, yaw, and roll (in that order).
+        camera_metadata : CameraMetadata
+            Camera metadata containing sensor dimensions, image resolution,
+            and focal length.
+        altitude_offset : float, optional
+            Offset to subtract from platform altitude before computing
+            ground footprint, by default 0.
+
+        Returns
+        -------
+        tuple of float
+            Target latitude and longitude in degrees.
+        """
         altitude, latitude, longitude, pitch, yaw, roll = astuple(platform_state)
         sensor_width, sensor_height, image_width, image_height, focal_length = astuple(
             camera_metadata
@@ -66,6 +169,60 @@ def georeference_utm(
     pix_height,
     focal_length,
 ):
+    """
+    Georeference using a UTM projection.
+
+    This backend:
+
+    1. Computes camera field-of-view (FOV) from sensor size and focal length:
+
+       .. math::
+
+          \\text{FOV}_x = 2 \\arctan\\left( \\frac{w}{2 f} \\right), \\quad
+          \\text{FOV}_y = 2 \\arctan\\left( \\frac{h}{2 f} \\right).
+
+    2. Computes the ground footprint width/height at altitude:
+
+       .. math::
+
+          W = 2 h \\tan\\left( \\frac{\\text{FOV}_x}{2} \\right), \\quad
+          H = 2 h \\tan\\left( \\frac{\\text{FOV}_y}{2} \\right).
+
+    3. Converts drone lat/lon to UTM, applies pixel-based offsets scaled
+       to :math:`W, H` and rotated by yaw, and converts back to WGS84
+       coordinates.
+
+    Parameters
+    ----------
+    target_pixel_coordinates : tuple of int
+        Target pixel coordinates :math:`(x, y)` in image space.
+    drone_latitude : float
+        Drone latitude in degrees.
+    drone_longitude : float
+        Drone longitude in degrees.
+    drone_altitude : float
+        Drone altitude above ground/sea level (units consistent with offset).
+    altitude_offset : float
+        Altitude offset to subtract before computing footprint.
+    drone_yaw : float
+        Drone yaw (heading) in degrees.
+    sensor_w : float
+        Sensor width (same units as :paramref:`focal_length`).
+    sensor_h : float
+        Sensor height (same units as :paramref:`focal_length`).
+    pix_width : int
+        Image width in pixels.
+    pix_height : int
+        Image height in pixels.
+    focal_length : float
+        Camera focal length (same units as :paramref:`sensor_w` and
+        :paramref:`sensor_h`).
+
+    Returns
+    -------
+    tuple of float
+        Target latitude and longitude in degrees.
+    """
     # Constants for image resolution and camera field of view
     pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
     horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
@@ -135,6 +292,48 @@ def georeference_enu(
     pix_height,
     focal_length,
 ):
+    
+    """
+    Georeference using a local ENU (East–North–Up) frame.
+
+    This backend:
+
+    - Computes FOV and footprint size as in :func:`georeference_utm`.
+    - Converts pixel offsets (relative to image center) into meters.
+    - Rotates those offsets by yaw into ENU directions.
+    - Uses :func:`pymap3d.enu2geodetic` to convert ENU offsets to
+      latitude/longitude.
+
+    Parameters
+    ----------
+    target_pixel_coordinates : tuple of int
+        Target pixel coordinates :math:`(x, y)` in image space.
+    drone_latitude : float
+        Drone latitude in degrees.
+    drone_longitude : float
+        Drone longitude in degrees.
+    drone_altitude : float
+        Drone altitude above reference.
+    altitude_offset : float
+        Altitude offset to subtract before computing footprint.
+    drone_yaw : float
+        Drone yaw (heading) in degrees.
+    sensor_w : float
+        Sensor width (same units as :paramref:`focal_length`).
+    sensor_h : float
+        Sensor height (same units as :paramref:`focal_length`).
+    pix_width : int
+        Image width in pixels.
+    pix_height : int
+        Image height in pixels.
+    focal_length : float
+        Camera focal length.
+
+    Returns
+    -------
+    tuple of float
+        Target latitude and longitude in degrees.
+    """
     # Adjust altitude if necessary
     altitude = drone_altitude - altitude_offset
 
@@ -190,6 +389,43 @@ def georeference_aeqd(
     pix_height,
     focal_length,
 ):
+    """
+    Georeference using a local Azimuthal Equidistant projection.
+
+    This backend constructs an azimuthal equidistant (AEQD) projection
+    centered on the drone position, performs all offsets in that local
+    metric space, and converts back to WGS84 coordinates.
+
+    Parameters
+    ----------
+    target_pixel_coordinates : tuple of int
+        Target pixel coordinates :math:`(x, y)` in image space.
+    drone_latitude : float
+        Drone latitude in degrees.
+    drone_longitude : float
+        Drone longitude in degrees.
+    drone_altitude : float
+        Drone altitude above reference.
+    altitude_offset : float
+        Altitude offset to subtract before computing footprint.
+    drone_yaw : float
+        Drone yaw (heading) in degrees.
+    sensor_w : float
+        Sensor width.
+    sensor_h : float
+        Sensor height.
+    pix_width : int
+        Image width in pixels.
+    pix_height : int
+        Image height in pixels.
+    focal_length : float
+        Camera focal length.
+
+    Returns
+    -------
+    tuple of float
+        Target latitude and longitude in degrees.
+    """
     # Constants for image resolution and camera field of view
     pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
     horiz_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
@@ -254,6 +490,53 @@ def georeference_manual(
     pix_height,
     focal_length,
 ):
+    """
+    Georeference using a simple manual flat-earth approximation.
+
+    This backend uses a constant meters-per-degree approximation to convert
+    camera-plane offsets to latitude and longitude. It is less accurate at
+    large distances or high latitudes, but is simple and lightweight.
+
+    Specifically:
+
+    .. math::
+
+       \\Delta \\varphi \\approx \\frac{y_{\\text{meters}}}{R_\\varphi}, \\quad
+       \\Delta \\lambda \\approx \\frac{x_{\\text{meters}}}{R_\\lambda \\cos \\varphi},
+
+    where :math:`R_\\varphi \\approx R_\\lambda \\approx 111319.944` meters
+    per degree near the equator.
+
+    Parameters
+    ----------
+    target_pixel_coordinates : tuple of int
+        Target pixel coordinates :math:`(x, y)` in image space.
+    drone_latitude : float
+        Drone latitude in degrees.
+    drone_longitude : float
+        Drone longitude in degrees.
+    drone_altitude : float
+        Drone altitude above reference.
+    altitude_offset : float
+        Altitude offset to subtract before computing footprint.
+    drone_yaw : float
+        Drone yaw (heading) in degrees.
+    sensor_w : float
+        Sensor width.
+    sensor_h : float
+        Sensor height.
+    pix_width : int
+        Image width in pixels.
+    pix_height : int
+        Image height in pixels.
+    focal_length : float
+        Camera focal length.
+
+    Returns
+    -------
+    tuple of float
+        Target latitude and longitude in degrees.
+    """
     # Constants
     pixel_resolution = (pix_width, pix_height)
 
@@ -315,7 +598,45 @@ def georeference_manual(
 
 # Return Distance Between Two GPS points in meters
 def haversine(lat1, lon1, lat2, lon2):
+    """
+    Compute great-circle distance between two GPS points using the haversine formula.
 
+    The haversine distance on a sphere of radius :math:`R` is:
+
+    .. math::
+
+       d = 2 R \\arctan2\\left(
+           \\sqrt{a},
+           \\sqrt{1 - a}
+       \\right),
+
+    where
+
+    .. math::
+
+       a = \\sin^2\\left( \\frac{\\Delta\\varphi}{2} \\right)
+         + \\cos \\varphi_1 \\cos \\varphi_2 \\sin^2\\left( \\frac{\\Delta\\lambda}{2} \\right),
+
+    and :math:`\\Delta\\varphi` and :math:`\\Delta\\lambda` are latitude and
+    longitude differences in radians. This implementation uses
+    :math:`R = 6371` km and returns distance in meters.
+
+    Parameters
+    ----------
+    lat1 : float
+        Latitude of the first point in degrees.
+    lon1 : float
+        Longitude of the first point in degrees.
+    lat2 : float
+        Latitude of the second point in degrees.
+    lon2 : float
+        Longitude of the second point in degrees.
+
+    Returns
+    -------
+    float
+        Great-circle distance between the two points in meters.
+    """
     # convert decimal degrees to radians
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
 

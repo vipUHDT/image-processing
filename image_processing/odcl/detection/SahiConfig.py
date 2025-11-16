@@ -1,3 +1,18 @@
+"""
+SAHI-based detection model wrapper and configuration classes.
+
+This module provides:
+
+- :class:`SahiDetectionModel`, a thin, typed wrapper around
+  :class:`sahi.AutoDetectionModel` for constructing SAHI detection models
+  from configuration.
+- :class:`SahiConfig`, a dataclass for configuring image slicing and
+  post-processing behavior when using SAHI.
+- :class:`ModelConfig`, a higher-level model configuration dataclass used
+  by the detection pipeline to specify backend, model path, runtime
+  device, confidence thresholds, and backend-specific options.
+"""
+
 from sahi import AutoDetectionModel
 from sahi.postprocess.combine import (
     GreedyNMMPostprocess,

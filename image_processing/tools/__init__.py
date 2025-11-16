@@ -1,3 +1,19 @@
+"""
+Utility subpackage containing general-purpose helper functions used
+throughout the project, including:
+
+- File hashing utilities
+- Pixel-to-world homography mapping
+- EXIF metadata extraction and embedding
+- GPS access via u-blox receivers
+- Mission-planning utilities (grid-based waypoint generation)
+- Timestamp helper for filename-safe datetime strings
+
+This module consolidates commonly needed routines that are not specific
+to any individual component (e.g., camera, detection, or storage) and
+can be reused across pipelines and subsystems.
+"""
+
 from .hash import *
 from .homography import *
 from .metadata import *

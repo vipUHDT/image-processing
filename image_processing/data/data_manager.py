@@ -7,11 +7,62 @@ from dataclasses import dataclass
 
 @dataclass
 class ImageDataset:
+    """
+    Specification for an image dataset to be stored in HDF5.
+
+    Parameters
+    ----------
+    name : str
+        Name of the dataset under the ``"camera/images"`` group (e.g., ``"rgb"`` or ``"ir"``).
+    shape : tuple of int
+        Shape of a single frame (e.g., ``(H, W, 3)`` for RGB or ``(H, W)`` for grayscale).
+    dtype : str
+        NumPy/HDF5 dtype string to use when creating the dataset (e.g., ``"uint8"``).
+    """
     name: str
     shape: tuple[int]
     dtype: str
 
 class DataManager:
+    """
+    Manager for organizing flight/image data in an HDF5 file.
+
+    This class creates and maintains a consistent HDF5 layout for camera
+    images, top-level metadata, and detection results. It can create
+    extensible image datasets for multiple streams (e.g., RGB and IR),
+    append frames to them, and store metadata as simple key/value pairs.
+
+    Parameters
+    ----------
+    filename : str, optional
+        Path to the HDF5 file. The file is opened in append mode ("a") when
+        :meth:`initialize` is called. Default is ``"flight.hdf5"``.
+    image_datasets : list of ImageDataset, optional
+        Definitions of image datasets to create under ``/camera/images``.
+        If provided, each dataset is created as an extensible dataset with
+        an initial length of 0 and frame shape taken from the specification.
+
+    Attributes
+    ----------
+    filename : str
+        HDF5 file name/path used on disk.
+    file : h5py.File or None
+        Open HDF5 file handle after :meth:`initialize` is called, ``None`` otherwise.
+    image_datasets : list of ImageDataset or None
+        Dataset specifications passed at construction time.
+    cdata : h5py.Group
+        ``"camera"`` group created or required at initialization.
+    cidata : h5py.Group
+        ``"camera/images"`` group that contains image datasets.
+    meta_keys : h5py.Dataset
+        1-D string dataset storing metadata keys.
+    meta_vals : h5py.Dataset
+        1-D string dataset storing metadata values.
+    det_keys : h5py.Dataset
+        1-D string dataset storing detection keys.
+    det_vals : h5py.Dataset
+        1-D string dataset storing detection values.
+    """
     def __init__(
         self,
         filename: str = "flight.hdf5",

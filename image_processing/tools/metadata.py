@@ -3,6 +3,26 @@ import multiprocessing
 import subprocess
 
 def extractMetadata(file_name):
+    """
+    Extract relevant camera and geospatial metadata using ExifTool.
+
+    Parameters
+    ----------
+    file_name : str
+        Path to the image file to inspect.
+
+    Returns
+    -------
+    tuple or None
+        `(metadata, latitude, longitude, altitude, yaw, pix_width, pix_height, focal_length)`
+        or `None` if the file does not contain GPS metadata.
+
+    Notes
+    -----
+    - EXIF GPS longitude is negated so that West values become negative.
+    - `yaw` is parsed from the `File:Comment` field using the format:
+      `"pitch: <val> yaw: <val> roll: <val>"`.
+    """
     with ExifToolHelper() as et:
         metadata = et.get_metadata(file_name)[0]
         # print(metadata['File:Comment'])
@@ -19,18 +39,43 @@ def extractMetadata(file_name):
             return metadata, latitude, longitude, altitude, yaw, pix_width, pix_height, focal_length
         
 def execute(command):
+    """Run a command with suppressed stdout/stderr."""
     subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
      
 def embedMetadata(file_name, latitude, longitudate, pitch, yaw, roll):
-        orientation = f"pitch: {pitch} yaw: {yaw} roll: {roll}"
-        
-        embed_orientation_command = ('exiftool','-overwrite_original', f'-comment={orientation}', file_name)
-        embed_latitude_command = ('exiftool','-overwrite_original', '-exif:gpslatitude=\'{latitude}', file_name)
-        embed_longitude_command = ('exiftool','-overwrite_original', '-exif:gpslongitude=\'{longitude}', file_name)
-        embed_altitude_command = ('exiftool','-overwrite_original', '-exif:gpsaltitude=\'{altitude}', file_name)
+    """
+    Embed geolocation + orientation metadata into an image using ExifTool.
 
-        embed_commands = [embed_orientation_command, embed_latitude_command, embed_longitude_command, embed_altitude_command]
-        
-        for command in embed_commands:
-            multiprocessing.Process(target = execute, args = (command,))
+    Parameters
+    ----------
+    file_name : str
+        Path to the output image file (will be modified in-place).
+    latitude : float
+        Decimal latitude (North positive, South negative).
+    longitude : float
+        Decimal longitude (East positive, West negative).
+    pitch : float
+        Pitch angle in degrees.
+    yaw : float
+        Yaw (heading) angle in degrees.
+    roll : float
+        Roll angle in degrees.
+
+    Notes
+    -----
+    - Uses `-overwrite_original`.
+    - Commands are launched as separate subprocesses.
+    - If running repeatedly consider batching into one call for efficiency.
+    """
+    orientation = f"pitch: {pitch} yaw: {yaw} roll: {roll}"
+    
+    embed_orientation_command = ('exiftool','-overwrite_original', f'-comment={orientation}', file_name)
+    embed_latitude_command = ('exiftool','-overwrite_original', '-exif:gpslatitude=\'{latitude}', file_name)
+    embed_longitude_command = ('exiftool','-overwrite_original', '-exif:gpslongitude=\'{longitude}', file_name)
+    embed_altitude_command = ('exiftool','-overwrite_original', '-exif:gpsaltitude=\'{altitude}', file_name)
+
+    embed_commands = [embed_orientation_command, embed_latitude_command, embed_longitude_command, embed_altitude_command]
+    
+    for command in embed_commands:
+        multiprocessing.Process(target = execute, args = (command,))
 

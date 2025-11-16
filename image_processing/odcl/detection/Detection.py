@@ -1,3 +1,14 @@
+"""
+Detection data structures and model wrapper for ODCL.
+
+This module defines the core abstractions for representing individual
+detections, aggregating model outputs, and running object detection
+via configurable backends. The primary implementation uses SAHI-based
+models to perform sliced or standard predictions and converts the
+results into internal :class:`Detection` objects with bounding boxes,
+centers, and cropped image regions.
+"""
+
 from sahi.predict import get_sliced_prediction, get_prediction
 import os
 import cv2
@@ -12,6 +23,36 @@ from .SahiConfig import SahiDetectionModel, ModelConfig
 
 
 class Detection:
+    """
+    Container for a single object detection.
+
+    This class stores classification metadata, confidence, pixel location,
+    and optional GPS/time information, along with the full source image
+    and an optional cropped region around the detection.
+
+    Parameters
+    ----------
+    classification : str
+        Predicted class label for the detection.
+    confidence : float
+        Confidence score associated with the detection, expected to be in
+        the range [0.0, 1.0].
+    pixel_coords : tuple of int
+        Pixel coordinates of the detection center in image coordinates,
+        typically (x, y).
+    image : cv2.typing.MatLike
+        The full source image in which the detection was made.
+    cropped_image : cv2.typing.MatLike or None, optional
+        Cropped image region corresponding to the detection bounding box,
+        by default None.
+    gps_coords : tuple of float or None, optional
+        Optional GPS coordinates (e.g., (latitude, longitude)) associated
+        with the detection, by default None.
+    timestamp : str or None, optional
+        Optional timestamp string associated with the frame or detection,
+        by default None.
+    """
+    
     def __init__(
         self,
         classification: str,
@@ -31,34 +72,143 @@ class Detection:
         self.cropped_image = cropped_image
 
     def get_gps_coords(self):
+        """
+        Return the GPS coordinates associated with this detection.
+
+        Returns
+        -------
+        tuple of float or None
+            GPS coordinates (e.g., (latitude, longitude)) if available,
+            otherwise None.
+        """
         return self.gps_coords
 
     def get_pixel_coords(self):
+        """
+        Return the pixel coordinates of the detection center.
+
+        Returns
+        -------
+        tuple of int
+            Center point (x, y) of the detection in image coordinates.
+        """
         return self.pixel_coords
 
     def get_timestamp(self):
+        """
+        Return the timestamp associated with this detection.
+
+        Returns
+        -------
+        str or None
+            Timestamp string if available, otherwise None.
+        """
         return self.timestamp
 
     def get_confidence(self):
+        """
+        Return the confidence score for this detection.
+
+        The confidence is validated to be within [0.0, 1.0].
+
+        Returns
+        -------
+        float
+            Confidence score for the detection.
+
+        Raises
+        ------
+        ValueError
+            If the stored confidence is outside the range [0.0, 1.0].
+        """
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Confidence must be between 0.0 and 1.0")
         return self.confidence
 
     def get_image(self):
+        """
+        Return the full source image for this detection.
+
+        Returns
+        -------
+        cv2.typing.MatLike
+            The image in which this detection was made.
+        """
         return self.image
 
 
 class DetectionModelResult(ModelResult):
+    """
+    Model result that aggregates detections and their source image.
+
+    This extends :class:`ModelResult` by attaching an image and a list of
+    :class:`Detection` instances produced by a single model run.
+
+    Parameters
+    ----------
+    model_name : str or None, optional
+        Name or identifier of the detection model, by default None.
+    model_hash : str or None, optional
+        Hash or version identifier for the model artefact, by default None.
+    image : cv2.typing.MatLike or None, optional
+        Image associated with the detections, by default None.
+
+    Attributes
+    ----------
+    image : cv2.typing.MatLike or None
+        Image used for the detections.
+    detections : list of Detection
+        List of detection objects associated with this result.
+    """
+
     def __init__(self, model_name: Optional[str] = None, model_hash: Optional[str] = None, image: Optional[cv2.typing.MatLike] = None):
         super().__init__(model_name, model_hash)
         self.image = image
         self.detections = []
     
     def add(self, detection: Detection):
+        """
+        Add a detection to the result's detection list.
+
+        Parameters
+        ----------
+        detection : Detection
+            Detection instance to append to the result.
+        """
         self.detections.append(detection)
 
 
 class Detector:
+    """
+    Detection model wrapper with SAHI-based backend support.
+
+    This class encapsulates configuration, loading, and inference for
+    object detection models. The current implementation supports SAHI
+    slicing or standard prediction modes via :class:`SahiDetectionModel`,
+    and exposes utilities to convert raw predictions into internal
+    :class:`Detection` objects.
+
+    Parameters
+    ----------
+    model_config : ModelConfig or None, optional
+        Configuration for the detection model and its backend, including
+        model path, type, device, and SAHI-specific slicing parameters.
+
+    Attributes
+    ----------
+    backend : str or None
+        Name of the backend in use (e.g., ``"sahi"``) or None if not set.
+    model_config : ModelConfig or None
+        Active model configuration.
+    model : Any
+        Loaded model instance (e.g., :class:`SahiDetectionModel`) once
+        :meth:`loadModel` has been called.
+    model_path : str or None
+        Path to the model artefact. May be used to track or hash the model.
+    model_hash : str or None
+        Optional hash used to identify the specific model build.
+    """
+    
     def __init__(self, model_config: Optional[ModelConfig]  = None):
         self.backend = None
         self.model_config: ModelConfig | None = None
@@ -69,6 +219,17 @@ class Detector:
         self.setModelConfig(model_config)
     
     def setModelConfig(self, model_config: Optional[ModelConfig]):
+        """
+        Set the model configuration and determine the backend type.
+
+        If the configuration includes a SAHI backend, the backend name
+        is set to ``"sahi"``; otherwise, backend is left as None.
+
+        Parameters
+        ----------
+        model_config : ModelConfig or None
+            New model configuration to apply.
+        """
         self.model_config = model_config
         if self.model_config and isinstance(self.model_config.backend_config, SahiConfig):
             self.backend = "sahi"
@@ -76,6 +237,12 @@ class Detector:
             self.backend = None
        
     def loadModel(self):
+        """
+        Load the detection model based on the current configuration.
+
+        Currently, this initializes a :class:`SahiDetectionModel` when the
+        backend is ``"sahi"`` and a valid :class:`ModelConfig` is present.
+        """
         if isinstance(self.model_config, ModelConfig):
             if self.backend == "sahi":
                 self.model = SahiDetectionModel(
@@ -86,6 +253,13 @@ class Detector:
                 )
 
     def initializeModel(self):
+        """
+        Warm up the detection model by running a dummy forward pass.
+
+        This can be used to trigger any lazy initialization inside the
+        underlying framework (e.g., CUDA context, graph compilation) so
+        that the first real inference call is faster.
+        """
         h, w = (64, 64)
         dummy = np.zeros((h, w, 3), dtype=np.uint8)
         _ = self.run(dummy)
@@ -97,11 +271,52 @@ class Detector:
         export_dir: str = os.getcwd(),
         file_name: str = "visual.png",
     ):
+        """
+        Export visualizations of detection results to disk.
+
+        For SAHI backends, this delegates to
+        :meth:`sahi.prediction.PredictionResult.export_visuals`.
+
+        Parameters
+        ----------
+        results : PredictionResult
+            Prediction results object produced by SAHI.
+        export_dir : str, optional
+            Directory where the visualization image will be saved, by default
+            the current working directory.
+        file_name : str, optional
+            File name for the exported visualization image, by default
+            ``"visual.png"``.
+        """
         if results and self.backend:
             if self.backend == "sahi":
                 results.export_visuals(export_dir=export_dir, file_name=file_name)
 
     def parseResults(self, results: PredictionResult, padding=0) -> tuple[DetectionModelResult, list[Detection]]:
+        """
+        Convert a :class:`PredictionResult` into internal detection objects.
+
+        This method converts a SAHI :class:`PredictionResult` into a
+        :class:`DetectionModelResult` and a list of :class:`Detection`
+        instances, optionally expanding bounding boxes by a given padding
+        while keeping them within image bounds.
+
+        Parameters
+        ----------
+        results : PredictionResult
+            SAHI prediction results object to parse.
+        padding : int, optional
+            Number of pixels to expand each bounding box in all directions
+            before cropping, by default 0.
+
+        Returns
+        -------
+        DetectionModelResult
+            Aggregated result containing the source image and its detections.
+        list of Detection
+            Flat list of per-object detection instances created from the
+            prediction result.
+        """
         detections: list[Detection] = []
         detection_model_result = DetectionModelResult(self.model_path, self.model_hash)
         if results and self.backend:
@@ -139,6 +354,24 @@ class Detector:
         return detection_model_result, detections
 
     def run(self, image: cv2.typing.MatLike) -> Optional[PredictionResult]:
+        """
+        Run the detection model on an input image.
+
+        For SAHI backends, this either performs sliced prediction or
+        standard prediction, depending on :class:`SahiConfig`. Post-processing
+        is configured according to the SAHI backend settings.
+
+        Parameters
+        ----------
+        image : cv2.typing.MatLike
+            Input image (e.g., NumPy array) to run detection on.
+
+        Returns
+        -------
+        PredictionResult or None
+            SAHI prediction result object if the model and configuration
+            are valid, otherwise None.
+        """
         if self.model_config:
             if self.backend == "sahi":
                 sahi_config = self.model_config.backend_config

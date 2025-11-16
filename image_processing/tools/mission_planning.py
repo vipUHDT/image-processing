@@ -1,3 +1,25 @@
+"""
+Mission-planning utilities for coverage flights and airdrop areas.
+
+This module computes camera footprints and waypoint grids for a given
+search/airdrop polygon, based on camera field of view (FOV), image size,
+desired overlap, and flight altitude. It also exports waypoints in formats
+compatible with Mission Planner and as an interactive Folium HTML map.
+
+Core steps
+----------
+1. Convert the boundary polygon to a suitable projected coordinate system.
+2. Compute the minimum rotated bounding rectangle and its orientation.
+3. Build an evenly spaced grid of waypoints in that rotated frame, honoring
+   a given image overlap percentage.
+4. Convert the grid back to latitude/longitude.
+5. Optionally export:
+
+   - A Mission Planner `.waypoints` file.
+   - A JSON file of search area waypoints.
+   - A Folium map showing boundary, waypoints, and per-image footprints.
+"""
+
 import math
 import json
 from shapely.geometry import Polygon
@@ -7,6 +29,40 @@ import folium
 
 
 def haversine_distance(point1, point2):
+    """
+    Compute great-circle distance between two waypoints using the haversine formula.
+
+    Parameters
+    ----------
+    point1 : tuple[float, float, float]
+        First waypoint as ``(lat, lon, alt)`` in degrees and meters.
+        Altitude is ignored for the distance calculation.
+    point2 : tuple[float, float, float]
+        Second waypoint as ``(lat, lon, alt)``.
+
+    Returns
+    -------
+    float
+        Great-circle distance between the two points in meters.
+
+    Notes
+    -----
+    The underlying formula is:
+
+    .. math::
+
+        d = 2 R \\arctan2\\left( \\sqrt{a}, \\sqrt{1 - a} \\right),
+
+    where
+
+    .. math::
+
+        a = \\sin^2\\left( \\frac{\\Delta\\varphi}{2} \\right)
+          + \\cos \\varphi_1 \\cos \\varphi_2 \\sin^2\\left( \\frac{\\Delta\\lambda}{2} \\right),
+
+    with latitude/longitude expressed in radians and :math:`R` the Earth
+    radius (here :math:`R = 6371000` m).
+    """
     lat1, lon1, _ = point1
     lat2, lon2, _ = point2
 
@@ -24,11 +80,41 @@ def haversine_distance(point1, point2):
 
 
 def calculate_total_distance(waypoints):
+    """
+    Compute the total travel distance along an ordered list of waypoints.
+
+    Parameters
+    ----------
+    waypoints : sequence of tuple[float, float, float]
+        Ordered list of waypoints as ``(lat, lon, alt)``. Altitude is
+        ignored when computing distances.
+
+    Returns
+    -------
+    float
+        Total path length in meters, obtained by summing haversine
+        distances between successive points.
+    """
     return sum(haversine_distance(waypoints[i - 1], waypoints[i])
                for i in range(1, len(waypoints)))
 
 
 def rotate_point_local(point, angle):
+    """
+    Rotate a 2D point about the origin by a given angle.
+
+    Parameters
+    ----------
+    point : tuple[float, float]
+        Point to rotate, as ``(x, y)`` in local coordinates.
+    angle : float
+        Rotation angle in radians, counter-clockwise.
+
+    Returns
+    -------
+    tuple[float, float]
+        Rotated point coordinates ``(x', y')``.
+    """
     x, y = point
     return (x * math.cos(angle) - y * math.sin(angle),
             x * math.sin(angle) + y * math.cos(angle))

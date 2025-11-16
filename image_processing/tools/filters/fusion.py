@@ -10,7 +10,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     M, N = block_size
     m, n = subblock_resolution
     r = radius
-    img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
+    #img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
     # Load images (assumes same size and alignment)
     visible_img = Image.fromarray(img_rgb).convert('RGB')
     infrared_img = Image.fromarray(ir_img).convert('L')

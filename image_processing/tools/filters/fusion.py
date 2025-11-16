@@ -3,44 +3,38 @@ from PIL import Image
 import colorsys
 from scipy.ndimage import sobel
 import os
+import matplotlib.pyplot as plt
+import cv2
 
 def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15), radius=5, output_dir='Fused'):
     M, N = block_size
     m, n = subblock_resolution
     r = radius
-
+    img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
     # Load images (assumes same size and alignment)
-    visible_img = Image.fromarray(eo_img).convert('RGB')
+    visible_img = Image.fromarray(img_rgb).convert('RGB')
     infrared_img = Image.fromarray(ir_img).convert('L')
 
-    if visible_img.size != infrared_img.size:
-        raise ValueError("RGB and IR images must be the same size")
+    #if visible_img.size != infrared_img.size:
+        #raise ValueError("RGB and IR images must be the same size")
 
-    W, H = visible_img.size
+    target_size = visible_img.size
 
     # Convert visible image to HSV
     visible_np = np.array(visible_img) / 255.0
-    H_channel = np.zeros((H, W))
-    S_channel = np.zeros((H, W))
-    V_visible = np.zeros((H, W))
-    for i in range(H):
-        for j in range(W):
-            r_val, g_val, b_val = visible_np[i, j]
-            h, s, v = colorsys.rgb_to_hsv(r_val, g_val, b_val)
+    H_channel = np.zeros(target_size[::-1])
+    S_channel = np.zeros(target_size[::-1])
+    V_visible = np.zeros(target_size[::-1])
+    for i in range(target_size[1]):
+        for j in range(target_size[0]):
+            r, g, b = visible_np[i, j]
+            h, s, v = colorsys.rgb_to_hsv(r, g, b)
             H_channel[i, j] = h
             S_channel[i, j] = s
             V_visible[i, j] = v
 
     # Normalize infrared image
     infrared = np.array(infrared_img) / 255.0
-
-    # Pad images to match block size
-    pad_H = (M - H % M) % M
-    pad_W = (N - W % N) % N
-    V_visible = np.pad(V_visible, ((0, pad_H), (0, pad_W)), mode='edge')
-    infrared = np.pad(infrared, ((0, pad_H), (0, pad_W)), mode='edge')
-    H_channel = np.pad(H_channel, ((0, pad_H), (0, pad_W)), mode='edge')
-    S_channel = np.pad(S_channel, ((0, pad_H), (0, pad_W)), mode='edge')
 
     # Triangular fuzzy basis
     def triangular_basis(domain_size, num_centers, radius):
@@ -82,8 +76,8 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
         H, W = img1.shape
         fused = np.zeros_like(img1)
         alpha_map = np.zeros_like(img1)
-        for i in range(0, H, M):
-            for j in range(0, W, N):
+        for i in range(0, H-M+1, M):
+            for j in range(0, W-N+1, N):
                 Bx = img1[i:i+M, j:j+N]
                 By = img2[i:i+M, j:j+N]
                 if Bx.shape != (M, N) or By.shape != (M, N):
@@ -108,13 +102,16 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
                 alpha_block = np.full((M, N), alpha)
                 alpha_map[i:i+M, j:j+N] = alpha_block
 
-        return fused
-    fused_V = fuse_images(V_visible, infrared, M, N, A, B)
-
+        return fused, alpha_map
+    fused_V,alpha_map = fuse_images(V_visible, infrared, M, N, A, B)
+    # Slightly boost brightness in IR-dominant areas
+    ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
+    fused_V[ir_strength_mask] = np.clip(fused_V[ir_strength_mask] * 1.15, 0, 1)
     # Recombine HSV
-    fused_rgb = np.zeros((H + pad_H, W + pad_W, 3), dtype=np.float32)
-    for i in range(H + pad_H):
-        for j in range(W + pad_W):
+    H,W =H_channel.shape
+    fused_rgb = np.zeros((H , W , 3), dtype=np.float32)
+    for i in range(H ):
+        for j in range(W):
             h = H_channel[i, j]
             s = S_channel[i, j]
             v = fused_V[i, j]
@@ -123,10 +120,22 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
 
     fused_rgb_uint8 = (fused_rgb * 255).astype(np.uint8)
     fused_img = Image.fromarray(fused_rgb_uint8)
-
+    alpha_img = (np.clip(alpha_map, 0, 1) * 255).astype(np.uint8)
+    Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
     return fused_rgb_uint8
 
 
+fused_result = FuzzyFusion(
+        eo_img = cv2.imread('cropped_rgb.png'),
+        ir_img = cv2.imread('resized_ir.png'),
+        block_size=(8, 8),
+        subblock_resolution=(15, 15),
+        radius=3,
+        output_dir=''
+        )
+plt.imshow(fused_result)
+plt.show()
+'''
 # Objective metrics
 def entropy(img):
     hist = np.histogram(img.flatten(), bins=256, range=(0, 1))[0]
@@ -156,3 +165,4 @@ def fusion_artifact(fused, vis, ir):
     diff_v = np.abs(fused - vis)
     diff_i = np.abs(fused - ir)
     return entropy(diff_v) + entropy(diff_i)
+'''

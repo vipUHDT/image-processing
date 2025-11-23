@@ -5,8 +5,8 @@ from scipy.ndimage import sobel
 import os
 import matplotlib.pyplot as plt
 import cv2
-from image_processing.tools.filters.Fuzzy_transform import *
 from image_processing.tools.filters.Basis_Function import *
+from image_processing.tools.filters.Fuzzy_transform import *
 from image_processing.tools.homography import cropRGBToMatchIR, resizeIRToMatchRGB
 
 
@@ -14,13 +14,30 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     M, N = block_size
     m, n = subblock_resolution
     r = radius
+    
     img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
     # Load images (assumes same size and alignment)
-    visible_img = Image.fromarray(img_rgb).convert('RGB')
-    infrared_img = Image.fromarray(ir_img).convert('L')
+    IR_points = np.float32([
+    (153,88),(255,68),(269,107),(447,91),(610,311),
+    (356,294),(153,459),(156,498),(90,335),(265,427)])
 
+    EO_points = np.float32([
+    (666,251),(822,229),(844,290),(1117,259),(1369,597),
+    (979,566),(670,833),(671,891),(567,628),(839,766)])
+
+    cropped_eo_img = cropRGBToMatchIR(
+    img_rgb,
+    ir_img, 
+    homography_points=(IR_points, EO_points),)
+
+    resized_ir_image = resizeIRToMatchRGB(
+    ir_img,
+    cropped_eo_img)
+    target_size = cropped_eo_img.size
+
+    visible_img = Image.fromarray(cropped_eo_img).convert('RGB')
+    infared_img = Image.fromarray(resized_ir_image).convert('L')
     target_size = visible_img.size
-
     # Convert visible image to HSV
     visible_np = np.array(visible_img) / 255.0
     H_channel = np.zeros(target_size[::-1])
@@ -35,7 +52,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
             V_visible[i, j] = v
 
     # Normalize infrared image
-    infrared = np.array(infrared_img) / 255.0
+    infrared = np.array(infared_img) / 255.0
 
     A = triangular_basis(M, m, r)
     B = triangular_basis(N, n, r)
@@ -59,18 +76,20 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     fused_img = Image.fromarray(fused_rgb_uint8)
     alpha_img = (np.clip(alpha_map, 0, 1) * 255).astype(np.uint8)
     Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
+
     return fused_rgb_uint8, rgb_weight, ir_weight
 
+
 fused_result,weight_rgb,weight_ir = FuzzyFusion(
-        eo_img = cv2.imread('cropped_rgb.png'),
-        ir_img = cv2.imread('resized_ir.png'),
+        eo_img = cv2.imread('RGB-Test/RGB-1.jpg'),
+        ir_img = cv2.imread('IR_Test/IR-1.jpg'),
         block_size=(8, 8),
         subblock_resolution=(15, 15),
         radius=3,
         output_dir=''
         )
+
 print(weight_rgb)
-print(weight_ir)
 plt.imshow(fused_result)
 plt.show()
 

@@ -66,31 +66,50 @@ def fuse_images(img1, img2, M, N, A, B):
             alpha_block = np.full((M, N), alpha)
             alpha_map[i:i+M, j:j+N] = alpha_block
 
-    rgb_weight_full = assemble_blocks(total_img_weight_rgb, H, W, M, N)
-    ir_weight_full  = assemble_blocks(total_img_weight_ir,  H, W, M, N)
 
-    return fused, alpha_map, rgb_weight_full, ir_weight_full
+    return fused, alpha_map, total_img_weight_rgb, total_img_weight_ir
 
 
 
-def assemble_blocks(blocks, H, W, M, N):
-    """
-    blocks: list of (M,N) arrays in raster order
-    H, W: target image dimensions
-    M, N: block size
-    """
-    out = np.zeros((H, W), dtype=np.float32)
-    block_idx = 0
-    for i in range(0, H, M):
-        for j in range(0, W, N):
-            if block_idx >= len(blocks):
-                break  # no more blocks
+def fuse_images(img1, img2, M, N, A, B):
+    H, W = img1.shape
+    fused = np.zeros_like(img1)
+    alpha_map = np.zeros_like(img1)
 
-            block = blocks[block_idx]
-            block_idx += 1
+    total_img_weight_rgb = []
+    total_img_weight_ir = []
 
-            h_slice = min(M, H - i)
-            w_slice = min(N, W - j)
+    for i in range(0, H - M + 1, M):
+        for j in range(0, W - N + 1, N):
+            Bx = img1[i:i+M, j:j+N]
+            By = img2[i:i+M, j:j+N]
 
-            out[i:i+h_slice, j:j+w_slice] = block[:h_slice, :w_slice]
-    return out
+            if Bx.shape != (M, N) or By.shape != (M, N):
+                continue
+
+            SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
+            SBy, weighted_ir  = fuzzy_transform(By, A, B)
+
+            var_x = np.var(SBx)
+            var_y = np.var(SBy)
+
+            # Compute fusion weight based on relative variance
+            alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
+            alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR
+
+            # Blend fuzzy transforms
+            SBz = alpha * SBx + (1 - alpha) * SBy
+
+            # Collect block weights
+            total_img_weight_rgb.append(weighted_rgb)
+            total_img_weight_ir.append(weighted_ir)
+
+            # Reconstruct fused block
+            Bz = inverse_fuzzy(SBz, A, B)
+            fused[i:i+M, j:j+N] = Bz
+
+            # Fill alpha map
+            alpha_block = np.full((M, N), alpha)
+            alpha_map[i:i+M, j:j+N] = alpha_block
+
+    return fused, alpha_map, total_img_weight_rgb, total_img_weight_ir

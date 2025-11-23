@@ -65,7 +65,7 @@ def fuse_images(img1, img2, M, N, A, B):
             # Fill alpha map
             alpha_block = np.full((M, N), alpha)
             alpha_map[i:i+M, j:j+N] = alpha_block
-            
+
     rgb_weight_full = assemble_blocks(total_img_weight_rgb, H, W, M, N)
     ir_weight_full  = assemble_blocks(total_img_weight_ir,  H, W, M, N)
 
@@ -74,16 +74,21 @@ def fuse_images(img1, img2, M, N, A, B):
 
 import numpy as np
 
+import numpy as np
+
 def assemble_blocks(blocks, H, W, M, N):
-    """
-    blocks: list of (M,N) arrays in raster order
-    H, W: target image dimensions
-    M, N: block size
-    """
     out = np.zeros((H, W), dtype=np.float32)
     block_idx = 0
     for i in range(0, H, M):
         for j in range(0, W, N):
-            out[i:i+M, j:j+N] = blocks[block_idx]
+            block = blocks[block_idx]
             block_idx += 1
+
+            # Compute slice sizes (may be smaller at edges)
+            h_slice = min(M, H - i)
+            w_slice = min(N, W - j)
+
+            # Place only the part that fits
+            out[i:i+h_slice, j:j+w_slice] = block[:h_slice, :w_slice]
     return out
+

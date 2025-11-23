@@ -5,6 +5,10 @@ from scipy.ndimage import sobel
 import os
 import matplotlib.pyplot as plt
 import cv2
+from image_processing.tools.filters.Fuzzy_transform import *
+from image_processing.tools.filters.Basis_Function import *
+from image_processing.tools.homography import cropRGBToMatchIR, resizeIRToMatchRGB
+
 
 def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15), radius=5, output_dir='Fused'):
     M, N = block_size
@@ -14,10 +18,6 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     # Load images (assumes same size and alignment)
     visible_img = Image.fromarray(img_rgb).convert('RGB')
     infrared_img = Image.fromarray(ir_img).convert('L')
-
-    #if visible_img.size != infrared_img.size:
-        #raise ValueError("RGB and IR images must be the same size")
-
 
     target_size = visible_img.size
 
@@ -37,79 +37,9 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     # Normalize infrared image
     infrared = np.array(infrared_img) / 255.0
 
-    # Triangular fuzzy basis
-    def triangular_basis(domain_size, num_centers, radius):
-        centers = np.linspace(0, domain_size - 1, num_centers)
-        basis = np.zeros((num_centers, domain_size))
-        for k, c in enumerate(centers):
-            for i in range(domain_size):
-                dist = abs(i - c)
-                denom = radius if radius != 0 else 1e-10
-                basis[k, i] = max(1 - dist / denom, 0)
-    
-        return basis
-
     A = triangular_basis(M, m, r)
     B = triangular_basis(N, n, r)
-
-    # Fuzzy transform
-    def fuzzy_transform(block, A, B):
-        m, n = A.shape[0], B.shape[0]
-        SB = np.zeros((m, n))
-        weight_block = np.zeros((8,8))
-        for k in range(m):
-            for l in range(n):
-                weights = np.outer(A[k], B[l])
-                numerator = np.sum(block * weights)
-                denominator = np.sum(weights)
-                SB[k, l] = numerator / denominator if denominator != 0 else 0
-                weight_block += block*weights
-        weight_block = weight_block/225
-        return SB,weight_block
-
-    # Inverse fuzzy transform
-    def inverse_fuzzy(SB, A, B):
-        M, N = A.shape[1], B.shape[1]
-        block = np.zeros((M, N))
-        for i in range(M):
-            for j in range(N):
-                block[i, j] = np.sum(SB * np.outer(A[:, i], B[:, j]))
-        return block
-
-    # Fusion
-    def fuse_images(img1, img2, M, N, A, B):
-        H, W = img1.shape
-        fused = np.zeros_like(img1)
-        alpha_map = np.zeros_like(img1)
-        total_img_weight_rgb =[]
-        total_img_weight_ir =[]
-        for i in range(0, H-M+1, M):
-            for j in range(0, W-N+1, N):
-                Bx = img1[i:i+M, j:j+N]
-                By = img2[i:i+M, j:j+N]
-                if Bx.shape != (M, N) or By.shape != (M, N):
-                    continue
-                SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
-                SBy,weighted_ir= fuzzy_transform(By, A, B)
-
-                var_x = np.var(SBx)
-                var_y = np.var(SBy)
-                # Compute fusion weight based on relative variance
-                alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
-                alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR by lowering min alpha
-
-                # Blend fuzzy transforms
-                SBz = alpha * SBx + (1 - alpha) * SBy
-                total_img_weight_rgb.append(weighted_rgb)
-                total_img_weight_rgb.append(weighted_ir)
-                Bz = inverse_fuzzy(SBz, A, B)
-                fused[i:i+M, j:j+N] = Bz
-                alpha_map[i:i+M, j:j+N] = alpha
-                alpha_block = np.full((M, N), alpha)
-                alpha_map[i:i+M, j:j+N] = alpha_block
-    
-        return fused, alpha_map, total_img_weight_rgb,total_img_weight_ir
-    
+      
     fused_V,alpha_map , rgb_weight,ir_weight = fuse_images(V_visible, infrared, M, N, A, B)
     # Slightly boost brightness in IR-dominant areas
     ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
@@ -145,34 +75,3 @@ plt.imshow(fused_result)
 plt.show()
 
 
-'''
-
-# Objective metrics
-def entropy(img):
-    hist = np.histogram(img.flatten(), bins=256, range=(0, 1))[0]
-    hist = hist / np.sum(hist)
-    hist = hist[hist > 0]
-    return -np.sum(hist * np.log2(hist))
-
-def standard_deviation(img):
-    return np.std(img)
-
-def edge_strength(fused, vis, ir):
-    def gradient(img):
-        gx = sobel(img, axis=0)
-        gy = sobel(img, axis=1)
-        return np.hypot(gx, gy)
-    Gf = gradient(fused)
-    Gv = gradient(vis)
-    Gi = gradient(ir)
-    Qv = np.sum(Gf * Gv) / (np.sum(Gv) + 1e-8)
-    Qi = np.sum(Gf * Gi) / (np.sum(Gi) + 1e-8)
-    return Qv + Qi
-
-def fusion_loss(fused, vis, ir):
-    return entropy(vis) + entropy(ir) - entropy(fused)
-
-def fusion_artifact(fused, vis, ir):
-    diff_v = np.abs(fused - vis)
-    diff_i = np.abs(fused - ir)
-'''

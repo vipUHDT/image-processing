@@ -1,7 +1,6 @@
 import numpy as np
 
 
-
 # Fuzzy transform
 def fuzzy_transform(block, A, B):
     m, n = A.shape[0], B.shape[0]
@@ -16,3 +15,45 @@ def fuzzy_transform(block, A, B):
             weight_block += block*weights
     weight_block = weight_block/225
     return SB,weight_block
+
+def inverse_fuzzy(SB, A, B):
+        M, N = A.shape[1], B.shape[1]
+        block = np.zeros((M, N))
+        for i in range(M):
+            for j in range(N):
+                block[i, j] = np.sum(SB * np.outer(A[:, i], B[:, j]))
+        return block
+
+# Fusion
+def fuse_images(img1, img2, M, N, A, B):
+    H, W = img1.shape
+    fused = np.zeros_like(img1)
+    alpha_map = np.zeros_like(img1)
+    total_img_weight_rgb =[]
+    total_img_weight_ir =[]
+    for i in range(0, H-M+1, M):
+        for j in range(0, W-N+1, N):
+            Bx = img1[i:i+M, j:j+N]
+            By = img2[i:i+M, j:j+N]
+            if Bx.shape != (M, N) or By.shape != (M, N):
+                continue
+            SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
+            SBy,weighted_ir= fuzzy_transform(By, A, B)
+
+            var_x = np.var(SBx)
+            var_y = np.var(SBy)
+            # Compute fusion weight based on relative variance
+            alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
+            alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR by lowering min alpha
+
+                # Blend fuzzy transforms
+            SBz = alpha * SBx + (1 - alpha) * SBy
+            total_img_weight_rgb.append(weighted_rgb)
+            total_img_weight_rgb.append(weighted_ir)
+            Bz = inverse_fuzzy(SBz, A, B)
+            fused[i:i+M, j:j+N] = Bz
+            alpha_map[i:i+M, j:j+N] = alpha
+            alpha_block = np.full((M, N), alpha)
+            alpha_map[i:i+M, j:j+N] = alpha_block
+    
+    return fused, alpha_map, total_img_weight_rgb,total_img_weight_ir

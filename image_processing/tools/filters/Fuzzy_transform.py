@@ -29,31 +29,32 @@ def fuse_images(img1, img2, M, N, A, B):
     H, W = img1.shape
     fused = np.zeros_like(img1)
     alpha_map = np.zeros_like(img1)
-    total_img_weight_rgb =[]
-    total_img_weight_ir =[]
+    rgb_weight_full = np.zeros_like(img1)   # full image weight map
+    ir_weight_full  = np.zeros_like(img1)   # full image weight map
+
     for i in range(0, H-M+1, M):
         for j in range(0, W-N+1, N):
             Bx = img1[i:i+M, j:j+N]
             By = img2[i:i+M, j:j+N]
             if Bx.shape != (M, N) or By.shape != (M, N):
                 continue
+
             SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
-            SBy,weighted_ir= fuzzy_transform(By, A, B)
+            SBy, weighted_ir  = fuzzy_transform(By, A, B)
 
             var_x = np.var(SBx)
             var_y = np.var(SBy)
-            # Compute fusion weight based on relative variance
-            alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
-            alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR by lowering min alpha
+            alpha = var_x / (var_x + var_y + 1e-8)
+            alpha = np.clip(alpha, 0.3, 1.0)
 
-                # Blend fuzzy transforms
             SBz = alpha * SBx + (1 - alpha) * SBy
-            total_img_weight_rgb.append(weighted_rgb)
-            total_img_weight_rgb.append(weighted_ir)
             Bz = inverse_fuzzy(SBz, A, B)
+
             fused[i:i+M, j:j+N] = Bz
             alpha_map[i:i+M, j:j+N] = alpha
-            alpha_block = np.full((M, N), alpha)
-            alpha_map[i:i+M, j:j+N] = alpha_block
-    
-    return fused, alpha_map, total_img_weight_rgb,total_img_weight_ir
+
+            # place block weights into full arrays
+            rgb_weight_full[i:i+M, j:j+N] = weighted_rgb
+            ir_weight_full[i:i+M, j:j+N]  = weighted_ir
+
+    return fused, alpha_map, rgb_weight_full, ir_weight_full

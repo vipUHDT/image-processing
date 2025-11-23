@@ -10,9 +10,9 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     M, N = block_size
     m, n = subblock_resolution
     r = radius
-    #img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
+    img_rgb = cv2.cvtColor(eo_img, cv2.COLOR_BGR2RGB)
     # Load images (assumes same size and alignment)
-    visible_img = Image.fromarray(eo_img).convert('RGB')
+    visible_img = Image.fromarray(img_rgb).convert('RGB')
     infrared_img = Image.fromarray(ir_img).convert('L')
 
     #if visible_img.size != infrared_img.size:
@@ -46,6 +46,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
                 dist = abs(i - c)
                 denom = radius if radius != 0 else 1e-10
                 basis[k, i] = max(1 - dist / denom, 0)
+    
         return basis
 
     A = triangular_basis(M, m, r)
@@ -55,13 +56,16 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     def fuzzy_transform(block, A, B):
         m, n = A.shape[0], B.shape[0]
         SB = np.zeros((m, n))
+        weight_block = np.zeros((8,8))
         for k in range(m):
             for l in range(n):
                 weights = np.outer(A[k], B[l])
                 numerator = np.sum(block * weights)
                 denominator = np.sum(weights)
                 SB[k, l] = numerator / denominator if denominator != 0 else 0
-        return SB
+                weight_block += block*weights
+        weight_block = weight_block/225
+        return SB,weight_block
 
     # Inverse fuzzy transform
     def inverse_fuzzy(SB, A, B):
@@ -77,15 +81,16 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
         H, W = img1.shape
         fused = np.zeros_like(img1)
         alpha_map = np.zeros_like(img1)
+        total_img_weight_rgb =[]
+        total_img_weight_ir =[]
         for i in range(0, H-M+1, M):
             for j in range(0, W-N+1, N):
                 Bx = img1[i:i+M, j:j+N]
                 By = img2[i:i+M, j:j+N]
                 if Bx.shape != (M, N) or By.shape != (M, N):
                     continue
-
-                SBx = fuzzy_transform(Bx, A, B)
-                SBy = fuzzy_transform(By, A, B)
+                SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
+                SBy,weighted_ir= fuzzy_transform(By, A, B)
 
                 var_x = np.var(SBx)
                 var_y = np.var(SBy)
@@ -95,16 +100,17 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
 
                 # Blend fuzzy transforms
                 SBz = alpha * SBx + (1 - alpha) * SBy
-
-
+                total_img_weight_rgb.append(weighted_rgb)
+                total_img_weight_rgb.append(weighted_ir)
                 Bz = inverse_fuzzy(SBz, A, B)
                 fused[i:i+M, j:j+N] = Bz
                 alpha_map[i:i+M, j:j+N] = alpha
                 alpha_block = np.full((M, N), alpha)
                 alpha_map[i:i+M, j:j+N] = alpha_block
-
-        return fused, alpha_map
-    fused_V,alpha_map = fuse_images(V_visible, infrared, M, N, A, B)
+    
+        return fused, alpha_map, total_img_weight_rgb,total_img_weight_ir
+    
+    fused_V,alpha_map , rgb_weight,ir_weight = fuse_images(V_visible, infrared, M, N, A, B)
     # Slightly boost brightness in IR-dominant areas
     ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
     fused_V[ir_strength_mask] = np.clip(fused_V[ir_strength_mask] * 1.15, 0, 1)
@@ -123,10 +129,9 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     fused_img = Image.fromarray(fused_rgb_uint8)
     alpha_img = (np.clip(alpha_map, 0, 1) * 255).astype(np.uint8)
     Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
-    return fused_rgb_uint8
+    return fused_rgb_uint8, rgb_weight, ir_weight
 
-'''
-fused_result = FuzzyFusion(
+fused_result,weight_rgb,weight_ir = FuzzyFusion(
         eo_img = cv2.imread('cropped_rgb.png'),
         ir_img = cv2.imread('resized_ir.png'),
         block_size=(8, 8),
@@ -134,8 +139,13 @@ fused_result = FuzzyFusion(
         radius=3,
         output_dir=''
         )
+print(weight_rgb)
+print(weight_ir)
 plt.imshow(fused_result)
 plt.show()
+
+
+'''
 
 # Objective metrics
 def entropy(img):
@@ -165,5 +175,4 @@ def fusion_loss(fused, vis, ir):
 def fusion_artifact(fused, vis, ir):
     diff_v = np.abs(fused - vis)
     diff_i = np.abs(fused - ir)
-    return entropy(diff_v) + entropy(diff_i)
 '''

@@ -8,14 +8,15 @@ class GPSConnectionError(Exception):
 
 
 class UbloxGPSController:
-    from ublox_gps import UbloxGps
+    
     def __init__(self, port: str = "/dev/ttyACM0", baudrate: int = 38400, timeout: int = 1):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
-        self.connection: Optional[UbloxGps] = None
+        self.connection = None
 
     def connect(self, port: Optional[str] = None, baudrate: Optional[int] = None, timeout: Optional[int] = None) -> bool:
+        from ublox_gps import UbloxGps
         try:
             ser = serial.Serial(
                 port=port or self.port,

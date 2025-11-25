@@ -50,7 +50,7 @@ class RemoteCamera(CameraBackend):
         
     def terminateProcessID(self, pid: None | str = None):
         if pid:
-            cmd = f"kill -SIGINT {pid}"
+            cmd = f"kill -INT {pid}"
             cmd_output = self.connection_manager.run_cmd(cmd)  # type: ignore 
             return cmd_output
         
@@ -59,6 +59,9 @@ class RemoteCamera(CameraBackend):
             cmd = f"pkill -SIGINT {pname}"
             cmd_output = self.connection_manager.run_cmd(cmd) # type: ignore 
             return cmd_output
+        
+    def cleanLogFiles(self):
+        self.connection_manager.run_cmd("rm -rf nohup.out")
     
     def disconect(self):
         self.connection_manager.disconnect()

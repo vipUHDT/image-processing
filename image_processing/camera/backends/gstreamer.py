@@ -112,6 +112,7 @@ class GStreamerCamera():
     def terminate(self):
         if self.pid and self.remote:
             self.remote.terminateProcessID(self.pid)
+            self.remote.cleanLogFiles()
             self.pid = None
             self.connected = False
 

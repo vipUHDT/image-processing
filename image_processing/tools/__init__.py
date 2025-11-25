@@ -3,6 +3,7 @@ from .homography import *
 from .metadata import *
 from .gps import UbloxGPSController
 from .mission_planning import *
+from .video import *
 from datetime import datetime
 
 def timestamp(format: str ="%d_%m_%Y_%H_%M_%S") -> str:

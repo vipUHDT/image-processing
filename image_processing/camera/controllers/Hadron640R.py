@@ -156,7 +156,7 @@ class OV64B(Camera):
             " ! ".join(
                 (
                     "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
-                    "rtpjitterbuffer latency=50",
+                    "rtpjitterbuffer latency=10",
                     "rtph264depay",
                     "avdec_h264",
                     "videoconvert",
@@ -172,14 +172,16 @@ class OV64B(Camera):
                         "gst-launch-1.0 -e "
                         "qtiqmmfsrc name=qmmf "
                         "camera=0 "
-                        "scene=hdr "
+                        "scene=action "\
+                        "af-mode=continuous "
                         "white-balance-mode=auto "
-                        "noise-reduction=hq "
-                        "sharpness=3 "
+                        "iso-mode=deblur "
+                        "noise-reduction=fast "
+                        "sharpness=1 "
                         "video_0::framerate=30 "
-                        "video_0::bitrate=10000000 "
+                        "video_0::bitrate=200000000 "
                         "video_0::bitrate-control=maxbitrate "
-                        "video_0::idr-interval=30"
+                        "video_0::idr-interval=1=30"
                     ),
                     "video/x-h264,width=1920,height=1080,framerate=30/1,profile=high",
                     "h264parse",

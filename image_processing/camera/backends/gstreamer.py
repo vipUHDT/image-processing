@@ -7,6 +7,8 @@ from image_processing.camera import Camera
 from typing import TypeAlias
 
 import cv2
+import queue
+import threading
 
 from string import Template
 GStreamerRemoteConnection: TypeAlias = tuple[str, str, str, str]
@@ -70,13 +72,12 @@ class GStreamerCamera():
                 self.rx_pipeline = pipeline.substitute(client=client, port=port)
 
     def startRXPipeline(self):
-        """Start receiving frames via GStreamer, using a bufferless capture."""
+
         if not self.rx_pipeline:
             raise RuntimeError("RX pipeline not set")
 
         print(self.rx_pipeline)
 
-        # Use CAP_GSTREAMER so OpenCV treats the string as a GStreamer pipeline
         self.capture = BufferlessVideoCapture(
             self.rx_pipeline,
             api_preference=cv2.CAP_GSTREAMER
@@ -87,26 +88,18 @@ class GStreamerCamera():
             raise RuntimeError("Failed to open RTP stream")
 
     def closeRXPipeline(self):
-        """Stop receiving frames and release the capture."""
+
         if self.capture is not None:
             self.capture.release()
             self.capture = None
 
     def captureFrame(self, timeout=None):
-        """
-        Return the latest frame from the stream.
-
-        timeout:
-          - None: block until a frame is available
-          - float: max seconds to wait (queue.Empty is raised if no frame)
-        """
         if self.capture is None:
             raise RuntimeError("RX pipeline not started")
 
         try:
             frame = self.capture.read(timeout=timeout)
         except queue.Empty:
-            # No frame available within timeout; up to you what to return
             return None
 
         return frame
@@ -154,11 +147,6 @@ class GStreamerManager():
             self.cameras['label'] = camera
         else:
             self.cameras[camera.name] = camera
-
-
-import cv2
-import queue
-import threading
 
 class BufferlessVideoCapture:
 

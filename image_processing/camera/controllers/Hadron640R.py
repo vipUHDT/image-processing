@@ -156,7 +156,7 @@ class OV64B(Camera):
             " ! ".join(
                 (
                     "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
-                    "rtpjitterbuffer latency=10",
+                    "rtpjitterbuffer latency=5 do-lost=true",
                     "rtph264depay",
                     "avdec_h264",
                     "videoconvert",
@@ -179,19 +179,19 @@ class OV64B(Camera):
                         "noise-reduction=fast "
                         "sharpness=1 "
                         "video_0::framerate=30 "
-                        "video_0::bitrate=200000000 "
+                        "video_0::bitrate=40000000 "
                         "video_0::bitrate-control=maxbitrate "
-                        "video_0::idr-interval=1=30"
+                        "video_0::idr-interval=1"
                     ),
                     "video/x-h264,width=1920,height=1080,framerate=30/1,profile=high",
                     "h264parse",
                     "tee name=t",
-                    "queue",
+                    "queue max-size-buffers=0 max-size-bytes=0 max-size-time=0",
                     "video/x-h264,stream-format=byte-stream,alignment=au",
                     "rtph264pay pt=96 mtu=1200 config-interval=1",
                     (
                         "udpsink host=$client port=$port sync=false async=false "
-                        "t. ! queue ! h264parse ! video/x-h264,stream-format=avc,alignment=au "
+                        "t. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! h264parse ! video/x-h264,stream-format=avc,alignment=au "
                         f"! mp4mux faststart=true ! filesink location={timestamp()}-OV64B.mp4 sync=false async=false"
                     ),
                 )

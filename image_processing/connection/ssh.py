@@ -34,7 +34,7 @@ class SSH_Controller():
     def run_cmd(self, cmd: str, background: bool = False) -> tuple[paramiko.channel.ChannelStdinFile, paramiko.channel.ChannelFile, paramiko.channel.ChannelStderrFile] | None:
         if (self.is_connected):
             if background:
-                cmd = f"nohup setsid {cmd}"
+                cmd = f"nohup setsid {cmd} > /dev/null 2>&1 &"
             stdin, stdout, stderr = self.client.exec_command(cmd, get_pty=True)
             return stdin, stdout, stderr
         else:

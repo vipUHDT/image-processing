@@ -63,14 +63,16 @@ class GStreamerCamera():
     def setRXPipeline(self, pipeline):
         self.rx_pipeline = pipeline
         if self.remote:
+            client = self.remote.client 
             port = self.port
             if not isinstance(pipeline, Template):
                 self.rx_pipeline = pipeline
             else:
-                self.rx_pipeline = pipeline.substitute(port = port)
+                self.rx_pipeline = pipeline.substitute(client = client, port = port)
 
     def startRXPipeline(self):
         if self.rx_pipeline:
+            print(self.rx_pipeline)
             self.capture = cv2.VideoCapture(self.rx_pipeline, cv2.CAP_GSTREAMER)
             if not self.capture.isOpened():
                 raise RuntimeError("Failed to open RTP stream")

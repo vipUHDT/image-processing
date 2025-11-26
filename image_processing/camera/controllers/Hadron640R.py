@@ -90,9 +90,15 @@ class Boson640(Camera):
         self.RX_TEMPLATE = Template(
             " ! ".join(
                 (
-                    "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
+                    "udpsrc port=$port "
+                    "caps=application/x-rtp,media=video,encoding-name=H264,"
+                    "payload=96,clock-rate=90000",
+                    "rtpjitterbuffer latency=10 drop-on-late=true",
                     "rtph264depay",
-                    "avdec_h264",
+                    "h264parse",
+                    "nvv4l2decoder disable-dpb=true",
+                    "nvvidconv",
+                    "video/x-raw,format=BGRx",
                     "videoconvert",
                     "video/x-raw,format=BGR",
                     "appsink drop=true max-buffers=1 sync=false",
@@ -100,20 +106,33 @@ class Boson640(Camera):
             )
         )
         self.TX_TEMPLATE = Template(
-            " ! ".join(
-                (
-                    "gst-launch-1.0 v4l2src device=/dev/video0 io-mode=2",
-                    "video/x-raw,format=NV12,width=640,height=512,framerate=30/1",
-                    "videoconvert ! video/x-raw,format=I420",
-                    "x264enc tune=zerolatency speed-preset=veryfast bitrate=2500 key-int-max=60 bframes=0 byte-stream=true",
-                    "h264parse",
-                    "video/x-h264,stream-format=byte-stream,alignment=au",
-                    "rtph264pay pt=96 mtu=1200 config-interval=1",
-                    "udpsink host=$client port=$port sync=false async=false",
-                )
-            )
-        )
+    " ! ".join(
+        (
+            "gst-launch-1.0 -e v4l2src device=/dev/video0 io-mode=2",
+            "video/x-raw,format=NV12,width=640,height=512,framerate=30/1",
+            "videoconvert",
+            "video/x-raw,format=I420",
 
+            "x264enc tune=zerolatency speed-preset=veryfast "
+            "bitrate=2500 key-int-max=60 bframes=0 byte-stream=true",
+
+            "h264parse",
+            (
+                "tee name=t "
+                "t. ! queue ! "
+                "video/x-h264,stream-format=byte-stream,alignment=au ! "
+                "rtph264pay pt=96 mtu=1200 config-interval=1 ! "
+                "udpsink host=$client port=$port sync=false async=false "
+                "t. ! queue ! "
+                "h264parse ! "
+                "video/x-h264,stream-format=avc,alignment=au ! "
+                "mp4mux faststart=true ! "
+                f"filesink location={timestamp()}-USBcam-h264.mp4 "
+                "sync=false async=false"
+            ),
+        )
+    )
+)
     def setPort(self, port):
         self.backend.port = port
 
@@ -155,16 +174,20 @@ class OV64B(Camera):
         self.RX_TEMPLATE = Template(
             " ! ".join(
                 (
-                    "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H264,payload=96",
-                    "rtpjitterbuffer latency=5 do-lost=true",
-                    "rtph264depay",
-                    "avdec_h264",
+                    "udpsrc port=$port caps=application/x-rtp,media=video,encoding-name=H265,payload=96",
+                    "rtpjitterbuffer latency=1 do-lost=true",
+                    "rtph265depay",
+                    "h265parse",
+                    "nvv4l2decoder disable-dpb=true",
+                    "nvvidconv",
+                    "video/x-raw,format=NV12",
                     "videoconvert",
                     "video/x-raw,format=BGR",
                     "appsink drop=true max-buffers=1 sync=false",
                 )
             )
         )
+
         self.TX_TEMPLATE = Template(
             " ! ".join(
                 (
@@ -172,27 +195,29 @@ class OV64B(Camera):
                         "gst-launch-1.0 -e "
                         "qtiqmmfsrc name=qmmf "
                         "camera=0 "
-                        "scene=action "\
+                        "scene=action "
                         "af-mode=continuous "
                         "white-balance-mode=auto "
                         "iso-mode=deblur "
                         "noise-reduction=fast "
                         "sharpness=1 "
                         "video_0::framerate=30 "
-                        "video_0::bitrate=40000000 "
+                        "video_0::bitrate=20000000 "
                         "video_0::bitrate-control=maxbitrate "
                         "video_0::idr-interval=1"
                     ),
-                    "video/x-h264,width=1920,height=1080,framerate=30/1,profile=high",
-                    "h264parse",
+                    "video/x-h265,profile=main,width=1920,height=1080,framerate=30/1",
+                    "h265parse",
                     "tee name=t",
-                    "queue max-size-buffers=0 max-size-bytes=0 max-size-time=0",
-                    "video/x-h264,stream-format=byte-stream,alignment=au",
-                    "rtph264pay pt=96 mtu=1200 config-interval=1",
+                    "queue",
+                    "video/x-h265,stream-format=byte-stream,alignment=au",
+                    "rtph265pay pt=96 mtu=1200 config-interval=1",
                     (
                         "udpsink host=$client port=$port sync=false async=false "
-                        "t. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! h264parse ! video/x-h264,stream-format=avc,alignment=au "
-                        f"! mp4mux faststart=true ! filesink location={timestamp()}-OV64B.mp4 sync=false async=false"
+                        "t. ! queue ! h265parse ! "
+                        "video/x-h265,stream-format=hvc1,alignment=au "
+                        f"! mp4mux faststart=true ! filesink "
+                        f"location={timestamp()}-OV64B.mp4 sync=false async=false"
                     ),
                 )
             )

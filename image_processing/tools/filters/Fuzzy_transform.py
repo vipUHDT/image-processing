@@ -33,7 +33,6 @@ def fuse_images(img1, img2, M, N, A, B):
     total_img_weight_ir = []
 
     for i in range(0, H - M + 1, M):
-        w_rgb =[]
         for j in range(0, W - N + 1, N):
             Bx = img1[i:i+M, j:j+N]
             By = img2[i:i+M, j:j+N]
@@ -42,7 +41,7 @@ def fuse_images(img1, img2, M, N, A, B):
                 continue
 
             SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
-            SBy, weighted_ir  = fuzzy_transform(By, A, B)
+            SBy, weighted_ir = fuzzy_transform(By, A, B)
 
             var_x = np.var(SBx)
             var_y = np.var(SBy)
@@ -55,16 +54,15 @@ def fuse_images(img1, img2, M, N, A, B):
             SBz = alpha * SBx + (1 - alpha) * SBy
 
             # Collect block weights
-            w_rgb.append(weighted_rgb)
-            #total_img_weight_ir.append(weighted_ir)
+            total_img_weight_rgb.append(weighted_rgb)
+            total_img_weight_ir.append(weighted_ir)
 
             # Reconstruct fused block
             Bz = inverse_fuzzy(SBz, A, B)
             fused[i:i+M, j:j+N] = Bz
 
-            # Fill alpha map
+            # Fill alpha maps
             alpha_block = np.full((M, N), alpha)
             alpha_map[i:i+M, j:j+N] = alpha_block
-
+    
     return fused, alpha_map, total_img_weight_rgb, total_img_weight_ir
-

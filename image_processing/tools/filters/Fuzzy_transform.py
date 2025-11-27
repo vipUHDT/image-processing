@@ -64,5 +64,6 @@ def fuse_images(img1, img2, M, N, A, B):
             # Fill alpha maps
             alpha_block = np.full((M, N), alpha)
             alpha_map[i:i+M, j:j+N] = alpha_block
-    
+    total_img_weight_rgb = np.array(total_img_weight_rgb)
+    total_img_weight_ir =np.array(total_img_weight_ir)
     return fused, alpha_map, total_img_weight_rgb, total_img_weight_ir

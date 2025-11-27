@@ -53,7 +53,7 @@ def fuse_images(img1, img2, M, N, A, B):
             SBz = alpha * SBx + (1 - alpha) * SBy
 
             # Collect block weights
-            expand_rgb[i:i+M-1, j:j+N-1]= weighted_rgb[(j+i)//8]
+            expand_rgb[i:i+M, j:j+N]= weighted_rgb[(j+i)//8]
 
             # Reconstruct fused block
             Bz = inverse_fuzzy(SBz, A, B)

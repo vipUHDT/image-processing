@@ -57,7 +57,7 @@ def fuse_images(img1, img2, M, N, A, B):
 
             # Reconstruct fused block
             Bz = inverse_fuzzy(SBz, A, B)
-            fused[i:i+M, j:j+N] = Bz
+            fused[i:i+M-1, j:j+N-1] = Bz
 
             # Fill alpha maps
             alpha_block = np.full((M, N), alpha)

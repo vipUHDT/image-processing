@@ -1,6 +1,8 @@
-import cv2
+
 from typing import Optional
 import numpy as np
+import cv2
+import matplotlib.pyplot as plt
 
 
 def mapPixelCoordinates(

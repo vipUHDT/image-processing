@@ -49,9 +49,14 @@ def cropRGBToMatchIR(rgb_img, ir_img, homography_points):
     x_max = min(w_rgb, x_max)
     y_max = min(h_rgb, y_max)
 
-    # Crop and save
+    # Crop
     cropped_rgb = rgb_img[y_min:y_max, x_min:x_max]
-    return cropped_rgb
+
+    # Resize to match IR dimensions exactly
+    resized_rgb = cv2.resize(cropped_rgb, (w_ir, h_ir), interpolation=cv2.INTER_LINEAR)
+
+    return resized_rgb
+
 
 
 def resizeIRToMatchRGB(ir_img, cropped_rgb_img):
@@ -62,3 +67,23 @@ def resizeIRToMatchRGB(ir_img, cropped_rgb_img):
     resized_ir = cv2.resize(ir_img, target_size, interpolation=cv2.INTER_LINEAR)
 
     return resized_ir
+
+eo_img = cv2.imread('RGB-Test/RGB-1.jpg')
+ir_img = cv2.imread('IR_Test/IR-1.jpg')
+
+IR_points = np.float32([
+    (153,88),(255,68),(269,107),(447,91),(610,311),
+    (356,294),(153,459),(156,498),(90,335),(265,427)])
+
+EO_points = np.float32([
+    (666,251),(822,229),(844,290),(1117,259),(1369,597),
+    (979,566),(670,833),(671,891),(567,628),(839,766)])
+
+
+cropped_eo_img = cropRGBToMatchIR(
+    eo_img,
+    ir_img, 
+    homography_points=(IR_points, EO_points),)
+
+eo = np.array(cropped_eo_img)
+print(eo.shape)

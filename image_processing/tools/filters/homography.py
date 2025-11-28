@@ -68,6 +68,7 @@ def resizeIRToMatchRGB(ir_img, cropped_rgb_img):
 
     return resized_ir
 
+'''
 eo_img = cv2.imread('RGB-Test/RGB-1.jpg')
 ir_img = cv2.imread('IR_Test/IR-1.jpg')
 
@@ -86,4 +87,4 @@ cropped_eo_img = cropRGBToMatchIR(
     homography_points=(IR_points, EO_points),)
 
 eo = np.array(cropped_eo_img)
-print(eo.shape)
+'''

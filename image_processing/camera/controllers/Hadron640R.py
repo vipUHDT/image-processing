@@ -11,6 +11,7 @@ from string import Template
 
 from cv2 import VideoCapture, CAP_GSTREAMER
 
+from time import sleep
 
 import logging
 
@@ -69,7 +70,8 @@ class Hadron640R:
 
         self.backendManager.cameras["OV64B"].startRXPipeline()
         self.backendManager.cameras["BOSON640"].startRXPipeline()
-
+        sleep(10)
+        
     def capture(self):
         rgb_img = self.backendManager.cameras["OV64B"].backend.captureFrame()
         infrared_img = self.backendManager.cameras["BOSON640"].backend.captureFrame()

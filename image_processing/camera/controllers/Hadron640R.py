@@ -63,9 +63,11 @@ class Hadron640R:
         self.backendManager.cameras["BOSON640"].setRXPipeline()
 
         self.backendManager.cameras["OV64B"].initialize()
-        self.backendManager.cameras["OV64B"].initializeStream(self.getProcessIds())
-
         self.backendManager.cameras["BOSON640"].initialize()
+        
+        
+        self.backendManager.cameras["OV64B"].initializeStream(self.getProcessIds())
+        sleep(5)
         self.backendManager.cameras["BOSON640"].initializeStream(self.getProcessIds())
 
         self.backendManager.cameras["OV64B"].startRXPipeline()

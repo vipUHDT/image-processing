@@ -9,6 +9,7 @@ from typing import TypeAlias
 import cv2
 import queue
 import threading
+import time
 
 from string import Template
 GStreamerRemoteConnection: TypeAlias = tuple[str, str, str, str]
@@ -93,16 +94,20 @@ class GStreamerCamera():
             self.capture.release()
             self.capture = None
 
-    def captureFrame(self, timeout=None):
+    def captureFrame(self, timeout: float | None = 1.0):
         if self.capture is None:
             raise RuntimeError("RX pipeline not started")
 
         try:
             frame = self.capture.read(timeout=timeout)
+            return frame
         except queue.Empty:
+            LOGGER.warning("[%s] Timeout waiting for frame", self.name)
+            return None
+        except RuntimeError:
+            LOGGER.error("[%s] Video stream ended", self.name)
             return None
 
-        return frame
 
     def initializeStream(self, process_ids, pipeline=None):
         if pipeline:
@@ -149,39 +154,59 @@ class GStreamerManager():
             self.cameras[camera.name] = camera
 
 class BufferlessVideoCapture:
-
     def __init__(self, src, api_preference=cv2.CAP_ANY):
         self.cap = cv2.VideoCapture(src, api_preference)
         if not self.cap.isOpened():
             raise RuntimeError("Failed to open video source")
 
-        self.q: queue.Queue = queue.Queue()
+        self.q: queue.Queue = queue.Queue(maxsize=1)
         self._stopped = False
 
-        t = threading.Thread(target=self._reader, daemon=True)
-        t.start()
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
 
     def _reader(self):
+        consecutive_failures = 0
+        max_failures = 10 
+
         while not self._stopped:
             ret, frame = self.cap.read()
             if not ret:
-                break
+                consecutive_failures += 1
+                LOGGER.warning("VideoCapture read() failed (%d/%d)",
+                               consecutive_failures, max_failures)
+                if consecutive_failures >= max_failures:
+                    break
+                time.sleep(0.01)
+                continue
 
-
-            if not self.q.empty():
-                try:
+            consecutive_failures = 0
+            
+            try:
+                if self.q.full():
                     self.q.get_nowait()
-                except queue.Empty:
-                    pass
+                self.q.put_nowait(frame)
+            except queue.Full:
+                pass
 
-            self.q.put(frame)
-
- 
+      
         self._stopped = True
+        try:
+            if not self.q.full():
+                self.q.put_nowait(None) 
+        except queue.Full:
+            pass
 
     def read(self, timeout=None):
-    
-        return self.q.get(timeout=timeout)
+        """
+        Returns a frame (numpy array), or raises:
+          - queue.Empty if timeout is reached
+          - RuntimeError if the stream has ended (EOS)
+        """
+        frame = self.q.get(timeout=timeout)
+        if frame is None:
+            raise RuntimeError("Video stream ended")
+        return frame
 
     def isOpened(self):
         return self.cap.isOpened()
@@ -190,8 +215,14 @@ class BufferlessVideoCapture:
         self._stopped = True
         if self.cap.isOpened():
             self.cap.release()
-
-        # Clear any buffered frame
+            
+        try:
+            if not self.q.full():
+                self.q.put_nowait(None)
+        except queue.Full:
+            pass
+        if self._thread.is_alive():
+            self._thread.join()
         with self.q.mutex:
             self.q.queue.clear()
 

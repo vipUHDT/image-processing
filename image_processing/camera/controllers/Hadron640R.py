@@ -108,7 +108,7 @@ class Boson640(Camera):
         self.TX_TEMPLATE = Template(
             " ! ".join(
                 (
-                    "gst-launch-1.0 -e v4l2src device=/dev/video0 io-mode=2",
+                    "gst-launch-1.0 -e v4l2src device=/dev/v4l/by-id/usb-FLIR_Boson_439955-video-index0 io-mode=2",
                     "video/x-raw,format=NV12,width=640,height=512,framerate=30/1",
                     "videoconvert",
                     "video/x-raw,format=I420",

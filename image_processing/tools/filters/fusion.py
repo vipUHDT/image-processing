@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import cv2
 from image_processing.tools.filters.Basis_Function import *
 from image_processing.tools.filters.Fuzzy_transform import *
-from image_processing.tools.homography import cropRGBToMatchIR, resizeIRToMatchRGB
+from image_processing.tools.filters.homography import cropRGBToMatchIR, resizeIRToMatchRGB
 
 
 def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15), radius=5, output_dir='Fused'):
@@ -19,24 +19,33 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     # Load images (assumes same size and alignment)
     IR_points = np.float32([
     (153,88),(255,68),(269,107),(447,91),(610,311),
-    (356,294),(153,459),(156,498),(90,335),(265,427)])
+    (356,294),(153,459),(156,498),(90,335),(265,427),
+    (447,165),(600,204),(613,199),(590,194),(606,190),
+    (585,180),(600,180),(585,164),(620,182),(598,164),
+    (613,172),(592,148),(611,158),(629,169)])
 
     EO_points = np.float32([
     (666,251),(822,229),(844,290),(1117,259),(1369,597),
-    (979,566),(670,833),(671,891),(567,628),(839,766)])
+    (979,566),(670,833),(671,891),(567,628),(839,766),
+    (1116,370),(1349,429),(1372,422),(1335,413),(1359,409),
+    (1326,393),(1348,391),(1326,369),(1384,399),(1348,368),
+    (1373,382),(1335,345),(1368,358),(1398,375)])
 
     cropped_eo_img = cropRGBToMatchIR(
     img_rgb,
     ir_img, 
     homography_points=(IR_points, EO_points),)
 
+    '''
     resized_ir_image = resizeIRToMatchRGB(
     ir_img,
     cropped_eo_img)
+    '''
+
     target_size = cropped_eo_img.size
 
     visible_img = Image.fromarray(cropped_eo_img).convert('RGB')
-    infared_img = Image.fromarray(resized_ir_image).convert('L')
+    infared_img = Image.fromarray(ir_img).convert('L')
     target_size = visible_img.size
     # Convert visible image to HSV
     visible_np = np.array(visible_img) / 255.0
@@ -60,9 +69,16 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     fused_V,alpha_map , rgb_weight,ir_weight = fuse_images(V_visible, infrared, M, N, A, B)
     # Slightly boost brightness in IR-dominant areas
     ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
+
+    '''
+    testing size
+    print("cropped_eo_img.shape:", cropped_eo_img.shape)
+    print("visible_np.shape:", visible_np.shape)
+    print("infrared.shape:", infrared.shape)
+    print("fused_V.shape:", fused_V.shape)
+    '''
+
     fused_V[ir_strength_mask] = np.clip(fused_V[ir_strength_mask] * 1.15, 0, 1)
-    rgb_w
-    ir_w
     # Recombine HSV
     H,W =H_channel.shape
     fused_rgb = np.zeros((H , W , 3), dtype=np.float32)
@@ -90,9 +106,19 @@ fused_result,weight_rgb,weight_ir = FuzzyFusion(
         radius=3,
         output_dir=''
         )
-
+'''
+print("Unflattened array:")
 print(weight_rgb[0])
-#plt.imshow(fused_result)
-# plt.show()
+print(weight_rgb[1])
+print(weight_rgb.shape)
+print("Flattened array")
+weight_rgb_reshape = np.reshape(weight_rgb, (976,800))
+print(weight_rgb_reshape[:127])
+print(weight_rgb_reshape.shape)
+'''
+print(weight_rgb)
+print("balls",weight_rgb.shape)
+plt.imshow(fused_result)
+plt.show()
 
 

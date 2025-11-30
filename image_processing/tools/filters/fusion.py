@@ -32,7 +32,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     (1373,382),(1335,345),(1368,358),(1398,375)])
 
     cropped_eo_img = cropRGBToMatchIR(
-    eo_img,
+    img_rgb,
     ir_img, 
     homography_points=(IR_points, EO_points),)
 
@@ -87,14 +87,14 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     fused_rgb_uint8 = (fused_rgb * 255).astype(np.uint8)
     fused_img = Image.fromarray(fused_rgb_uint8)
     alpha_img = (np.clip(alpha_map, 0, 1) * 255).astype(np.uint8)
-    #Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
+    Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
     
     return fused_rgb_uint8, rgb_weight, ir_weight
 '''
 if __name__ == "__main__":
     fused_result,weight_rgb,weight_ir = FuzzyFusion(
-            eo_img = cv2.imread('RGB-Test/RGB-1.jpg'),
-            ir_img = cv2.imread('IR_Test/IR-1.jpg'),
+            eo_img = cv2.imread('RGB-Test/4_1.png'),
+            ir_img = cv2.imread('IR_Test/4_1.png'),
             block_size=(8, 8),
             subblock_resolution=(15, 15),
             radius=3,
@@ -105,6 +105,5 @@ if __name__ == "__main__":
     plt.imshow(fused_result)
     plt.show()
 '''
-
 
 

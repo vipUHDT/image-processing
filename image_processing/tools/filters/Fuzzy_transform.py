@@ -28,7 +28,7 @@ def fuse_images(img1, img2, M, N, A, B):
     H, W = img1.shape
     fused = np.zeros_like(img1)
     alpha_map = np.zeros_like(img1)
-
+    total_w =[]
     expand_rgb = np.zeros_like(img1)
     expand_ir = np.zeros_like(img1)
     for i in range(0, H - M + 1, M):
@@ -41,24 +41,27 @@ def fuse_images(img1, img2, M, N, A, B):
 
             SBx, weighted_rgb = fuzzy_transform(Bx, A, B)
             SBy, weighted_ir = fuzzy_transform(By, A, B)
-
+            
+            w_rgb = np
             var_x = np.var(SBx)
             var_y = np.var(SBy)
 
             # Compute fusion weight based on relative variance
-            alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
-            alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR
-
+            #alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
+            #alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR
+            
             # Blend fuzzy transforms
-            SBz = alpha * SBx + (1 - alpha) * SBy
-
+            #SBz = alpha * SBx + (1 - alpha) * SBy
+            if var_x>var_y:
+                SBz =SBx
+            else:
+                SBz =SBy
             # Collect block weights
             expand_rgb[i:i+M, j:j+N]= weighted_rgb
-
             # Reconstruct fused block
             Bz = inverse_fuzzy(SBz, A, B)
             fused[i:i+M, j:j+N] = Bz
-
+            
             # Fill alpha maps
             alpha_block = np.full((M, N), alpha)
             alpha_map[i:i+M, j:j+N] = alpha_block

@@ -5,6 +5,7 @@ from image_processing.camera.backends import (
     GStreamerManager,
     GStreamerCamera,
 )
+from image_processing.connection.ssh import SSH_Controller
 from image_processing.tools import timestamp
 import os, glob
 from string import Template
@@ -45,6 +46,11 @@ class Hadron640R:
     def initialize(self):
         self.backendManager.addCamera(OV64B())
         self.backendManager.addCamera(Boson640())
+        
+        self.ssh = SSH_Controller(self.host, self.username, self.password)
+        self.ssh.connect()
+        self.ssh.run_cmd("pkill gst")
+        self.ssh.disconnect()
 
         self.backendManager.cameras["OV64B"].setConnection(
             self.client, self.host, self.username, self.password
@@ -85,19 +91,25 @@ class Hadron640R:
 
         self.backendManager.cameras["OV64B"].terminate()
         self.backendManager.cameras["BOSON640"].terminate()
+    
+    def downloadRemoteVideos(self, eo_save_path, ir_save_path):
+        self.backendManager.cameras["OV64B"].downloadRemoteVideo(eo_save_path)
+        self.backendManager.cameras["BOSON640"].downloadRemoteVideo(ir_save_path)
+        
 
 
 class Boson640(Camera):
     def __init__(self):
         super().__init__("BOSON640")
         self.backend = GStreamerCamera(self.name)
+        self.remote_video_path = f"flights/{timestamp()}-IR.mp4"
         self.RX_TEMPLATE = Template(
             " ! ".join(
                 (
                     "udpsrc port=$port "
                     "caps=application/x-rtp,media=video,encoding-name=H264,"
                     "payload=96,clock-rate=90000",
-                    "rtpjitterbuffer latency=10 drop-on-late=true",
+                    "rtpjitterbuffer latency=13 drop-on-late=true",
                     "rtph264depay",
                     "h264parse",
                     "nvv4l2decoder disable-dpb=true",
@@ -114,8 +126,6 @@ class Boson640(Camera):
                 (
                     "gst-launch-1.0 -e v4l2src device=/dev/v4l/by-id/usb-FLIR_Boson_439955-video-index0 io-mode=2",
                     "video/x-raw,format=NV12,width=640,height=512,framerate=30/1",
-                    "videoconvert",
-                    "video/x-raw,format=I420",
                     "x264enc tune=zerolatency speed-preset=veryfast "
                     "bitrate=2500 key-int-max=60 bframes=0 byte-stream=true",
                     "h264parse",
@@ -129,7 +139,7 @@ class Boson640(Camera):
                         "h264parse ! "
                         "video/x-h264,stream-format=avc,alignment=au ! "
                         "mp4mux faststart=true ! "
-                        f"filesink location={timestamp()}-USBcam-h264.mp4 "
+                        f"filesink location={self.remote_video_path} "
                         "sync=false async=false"
                     ),
                 )
@@ -168,12 +178,16 @@ class Boson640(Camera):
 
     def terminate(self):
         self.backend.terminate()
+        
+    def downloadRemoteVideo(self, save_path: str):
+        self.backend.downloadRemoteVideo(self.remote_video_path, save_path)
 
 
 class OV64B(Camera):
     def __init__(self):
         super().__init__("OV64B")
         self.backend = GStreamerCamera(self.name)
+        self.remote_video_path = f"flights/{timestamp()}-EO.mp4"
         self.RX_TEMPLATE = Template(
             " ! ".join(
                 (
@@ -208,9 +222,6 @@ class OV64B(Camera):
             ),
             "video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1",
             "queue",
-            "videoconvert",
-            "video/x-raw,format=I420",
-
             "x264enc tune=zerolatency speed-preset=superfast bitrate=6000 key-int-max=30",
             "h264parse",
             (
@@ -223,7 +234,7 @@ class OV64B(Camera):
                 "! h264parse "
                 "! video/x-h264,stream-format=avc,alignment=au "
                 "! mp4mux faststart=true "
-                f"! filesink location={timestamp()}-OV64B-h264.mp4 sync=false async=false"
+                f"! filesink location={self.remote_video_path} sync=false async=false"
             ),
         )
     )
@@ -261,6 +272,9 @@ class OV64B(Camera):
 
     def terminate(self):
         self.backend.terminate()
+    
+    def downloadRemoteVideo(self, save_path: str):
+        self.backend.downloadRemoteVideo(self.remote_video_path, save_path)
 
 
 if __name__ == "__main__":

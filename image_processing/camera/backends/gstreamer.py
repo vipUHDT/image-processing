@@ -3,6 +3,7 @@ LOGGER = logging.getLogger(__name__)
 
 from image_processing.camera.backends import RemoteCamera  
 from image_processing.camera import Camera
+from image_processing.connection import SFTPController
 
 from typing import TypeAlias
 
@@ -27,9 +28,11 @@ class GStreamerCamera():
         self.connected = False
         self.capture: BufferlessVideoCapture | None = None
         self.port = None
+        self.sftp = None
 
     def setConnection(self, client, host, username, password):
         self.remote = RemoteCamera(client, host, username, password)
+        self.sftp = SFTPController(host, username, password)
     
     def setPort(self, port):
         self.port = port
@@ -37,21 +40,28 @@ class GStreamerCamera():
     def connect(self):
         if self.remote:
             self.remote.connect()
+        if self.sftp:
+            self.sftp.connect()
 
     def initialize(self):
         if self.remote:
             self.connect()
+            if self.sftp:
+                self.sftp.connect()
             return None
         
         elif self.remote_connection:
             client, host, username, password = self.remote_connection
             self.remote = RemoteCamera(client, host, username, password)
+            self.sftp = SFTPController(host, username, password)
             self.connect()
+            self.sftp.connect()
             self.connected = True
             return None
         
         else:
             return "Invalid connection"
+        
 
     def setTXPipeline(self, pipeline: Template | str):
         if self.remote:
@@ -137,6 +147,12 @@ class GStreamerCamera():
             self.remote.cleanLogFiles()
             self.pid = None
             self.connected = False
+            
+    def downloadRemoteVideo(self, remote_video_path: str, local_video_path):
+        if isinstance(self.sftp, SFTPController):
+            self.sftp.downloadFile(remote_video_path, local_video_path)
+        else:
+            print(f"No SFTP controller present for {self.name}")
 
 
 

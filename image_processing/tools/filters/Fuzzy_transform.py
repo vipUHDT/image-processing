@@ -46,16 +46,18 @@ def fuse_images(img1, img2, M, N, A, B):
             var_x = np.var(SBx)
             var_y = np.var(SBy)
 
-            # Compute fusion weight based on relative variance
-            #alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
-            #alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR
+            #Compute fusion weight based on relative variance
+            alpha = var_x / (var_x + var_y + 1e-8)  # Avoid divide-by-zero
+            alpha = np.clip(alpha, 0.3, 1.0)        # Optional: bias toward IR
             
-            # Blend fuzzy transforms
-            #SBz = alpha * SBx + (1 - alpha) * SBy
+            #Blend fuzzy transforms
+            SBz = alpha * SBx + (1 - alpha) * SBy
+            '''
             if var_x>var_y:
                 SBz =SBx
             else:
                 SBz =SBy
+            '''
             # Collect block weights
             expand_rgb[i:i+M, j:j+N]= weighted_rgb
             # Reconstruct fused block

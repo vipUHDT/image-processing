@@ -87,10 +87,10 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     fused_rgb_uint8 = (fused_rgb * 255).astype(np.uint8)
     fused_img = Image.fromarray(fused_rgb_uint8)
     alpha_img = (np.clip(alpha_map, 0, 1) * 255).astype(np.uint8)
-    Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
+    #Image.fromarray(alpha_img).save(os.path.join(output_dir, 'alpha_map.jpg'))
     
     return fused_rgb_uint8, rgb_weight, ir_weight
-
+'''
 if __name__ == "__main__":
     fused_result,weight_rgb,weight_ir = FuzzyFusion(
             eo_img = cv2.imread('RGB-Test/RGB-1.jpg'),
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     print(weight_rgb.shape)
     plt.imshow(fused_result)
     plt.show()
-
+'''
 
 
 

@@ -35,7 +35,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     img_rgb,
     ir_img, 
     homography_points=(IR_points, EO_points),)
-
+    plt.imshow(cropped_eo_img)
     target_size = cropped_eo_img.size
 
     visible_img = Image.fromarray(cropped_eo_img).convert('RGB')
@@ -95,9 +95,9 @@ if __name__ == "__main__":
     fused_result,weight_rgb,weight_ir = FuzzyFusion(
             eo_img = cv2.imread('RGB-Test/4_1.png'),
             ir_img = cv2.imread('IR_Test/4_1.png'),
-            block_size=(8, 8),
-            subblock_resolution=(15, 15),
-            radius=3,
+            block_size=(16,16),
+            subblock_resolution=(20, 20),
+            radius=8,
             output_dir=''
             )
     print(weight_rgb)

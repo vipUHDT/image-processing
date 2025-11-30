@@ -32,7 +32,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     (1373,382),(1335,345),(1368,358),(1398,375)])
 
     cropped_eo_img = cropRGBToMatchIR(
-    img_rgb,
+    eo_img,
     ir_img, 
     homography_points=(IR_points, EO_points),)
 

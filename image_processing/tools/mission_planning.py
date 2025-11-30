@@ -2,8 +2,6 @@ import math
 import json
 from shapely.geometry import Polygon
 from pyproj import Transformer
-from offline_folium import offline
-import folium
 
 
 def haversine_distance(point1, point2):
@@ -166,6 +164,8 @@ def sort_coordinates(coordinates):
 def export_map(map_file_path, boundary_coords, drone_waypoints, angle, rect_centroid,
                transformer_to_utm, transformer_from_utm, ground_width, ground_height,
                n_cols, n_rows):
+    from offline_folium import offline
+    import folium
     center_lat = sum(pt[0] for pt in boundary_coords) / len(boundary_coords)
     center_lon = sum(pt[1] for pt in boundary_coords) / len(boundary_coords)
 

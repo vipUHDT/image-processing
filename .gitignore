@@ -679,4 +679,8 @@ Cargo.lock
 ### macOS ###
 .DS_STORE
 
+camera/OV640B
+camera/HADRON640R
+camera/BOSON640
+
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,pycharm,images,ros2,ros,c++,c,clion,eclipse,diskimage,rust

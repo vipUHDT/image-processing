@@ -163,7 +163,7 @@ def sort_coordinates(coordinates):
 
 def export_map(map_file_path, boundary_coords, drone_waypoints, angle, rect_centroid,
                transformer_to_utm, transformer_from_utm, ground_width, ground_height,
-               n_cols, n_rows):
+               n_cols, n_rows, mission_planner_file):
     from offline_folium import offline
     import folium
     center_lat = sum(pt[0] for pt in boundary_coords) / len(boundary_coords)
@@ -204,7 +204,7 @@ def export_map(map_file_path, boundary_coords, drone_waypoints, angle, rect_cent
         folium.Polygon(locations=footprint_gps, color='green',
                        weight=1.5, opacity=0.8, fill=True, fill_opacity=0.2).add_to(mission_map)
 
-    save_to_mission_planner_file(drone_waypoints)
+    save_to_mission_planner_file(drone_waypoints, mission_planner_file)
     mission_map.save(map_file_path)
     print(f"Map saved as '{map_file_path}'.")
 
@@ -214,6 +214,7 @@ def generate_mission_from_params(bounds, photo_width, photo_height,
                                  overlap, flight_altitude,
                                  waypoint_save_path="waypoints.json",
                                  html_save_path="mission_waypoints.html",
+                                 mission_planner_file="mission.waypoints",
                                  is_reversed=False,
                                  row_traversal=False):
     boundary_coords = sort_coordinates(bounds)
@@ -239,4 +240,4 @@ def generate_mission_from_params(bounds, photo_width, photo_height,
     export_search_area_waypoints(drone_waypoints, waypoint_save_path)
     export_map(html_save_path, boundary_coords, drone_waypoints,
                angle, rect_centroid, transformer_to_utm, transformer_from_utm,
-               ground_width, ground_height, n_cols, n_rows)  
+               ground_width, ground_height, n_cols, n_rows, mission_planner_file)  

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import cv2
 from image_processing.tools.filters.Basis_Function import *
 from image_processing.tools.filters.Fuzzy_transform import *
-from image_processing.tools.filters.homography import cropRGBToMatchIR, resizeIRToMatchRGB
+from image_processing.tools.filters.homography import cropRGBToMatchIR
 
 
 def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15), radius=5, output_dir='Fused'):
@@ -35,12 +35,6 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     img_rgb,
     ir_img, 
     homography_points=(IR_points, EO_points),)
-
-    '''
-    resized_ir_image = resizeIRToMatchRGB(
-    ir_img,
-    cropped_eo_img)
-    '''
 
     target_size = cropped_eo_img.size
 
@@ -97,28 +91,20 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     
     return fused_rgb_uint8, rgb_weight, ir_weight
 
-  
-fused_result,weight_rgb,weight_ir = FuzzyFusion(
-        eo_img = cv2.imread('RGB-Test/RGB-1.jpg'),
-        ir_img = cv2.imread('IR_Test/IR-1.jpg'),
-        block_size=(8, 8),
-        subblock_resolution=(15, 15),
-        radius=3,
-        output_dir=''
-        )
-'''
-print("Unflattened array:")
-print(weight_rgb[0])
-print(weight_rgb[1])
-print(weight_rgb.shape)
-print("Flattened array")
-weight_rgb_reshape = np.reshape(weight_rgb, (976,800))
-print(weight_rgb_reshape[:127])
-print(weight_rgb_reshape.shape)
-'''
-print(weight_rgb)
-print("balls",weight_rgb.shape)
-plt.imshow(fused_result)
-plt.show()
+if __name__ == "__main__":
+    fused_result,weight_rgb,weight_ir = FuzzyFusion(
+            eo_img = cv2.imread('RGB-Test/RGB-1.jpg'),
+            ir_img = cv2.imread('IR_Test/IR-1.jpg'),
+            block_size=(8, 8),
+            subblock_resolution=(15, 15),
+            radius=3,
+            output_dir=''
+            )
+    print(weight_rgb)
+    print(weight_rgb.shape)
+    plt.imshow(fused_result)
+    plt.show()
+
+
 
 

@@ -22,43 +22,48 @@ def mapPixelCoordinates(
     return [None, None]
 
 def cropRGBToMatchIR(rgb_img, ir_img, homography_points):
-    h_ir, w_ir = ir_img.shape[:2]
+    if rgb_img.shape == ir_img.shape:
 
-    # Define IR corners
-    ir_corners = [
-        (0, 0),
-        (w_ir - 1, 0),
-        (w_ir - 1, h_ir - 1),
-        (0, h_ir - 1)
-    ]
+        return rgb_img
+    else:
 
-    # Map IR corners to RGB space
-    mapped_corners = [mapPixelCoordinates(pt, homography_points=homography_points) for pt in ir_corners]
-    mapped_corners = np.array(mapped_corners, dtype=np.float32)
+        h_ir, w_ir = ir_img.shape[:2]
 
-    # Compute bounding box in RGB image
-    x_coords = mapped_corners[:, 0]
-    y_coords = mapped_corners[:, 1]
-    x_min, x_max = int(np.floor(x_coords.min())), int(np.ceil(x_coords.max()))
-    y_min, y_max = int(np.floor(y_coords.min())), int(np.ceil(y_coords.max()))
+        # Define IR corners
+        ir_corners = [
+            (0, 0),
+            (w_ir - 1, 0),
+            (w_ir - 1, h_ir - 1),
+            (0, h_ir - 1)
+        ]
 
-    # Clip to RGB image bounds
-    h_rgb, w_rgb = rgb_img.shape[:2]
-    x_min = max(0, x_min)
-    y_min = max(0, y_min)
-    x_max = min(w_rgb, x_max)
-    y_max = min(h_rgb, y_max)
+        # Map IR corners to RGB space
+        mapped_corners = [mapPixelCoordinates(pt, homography_points=homography_points) for pt in ir_corners]
+        mapped_corners = np.array(mapped_corners, dtype=np.float32)
 
-    # Crop
-    cropped_rgb = rgb_img[y_min:y_max, x_min:x_max]
+        # Compute bounding box in RGB image
+        x_coords = mapped_corners[:, 0]
+        y_coords = mapped_corners[:, 1]
+        x_min, x_max = int(np.floor(x_coords.min())), int(np.ceil(x_coords.max()))
+        y_min, y_max = int(np.floor(y_coords.min())), int(np.ceil(y_coords.max()))
 
-    # Resize to match IR dimensions exactly
-    resized_rgb = cv2.resize(cropped_rgb, (w_ir, h_ir), interpolation=cv2.INTER_LINEAR)
+        # Clip to RGB image bounds
+        h_rgb, w_rgb = rgb_img.shape[:2]
+        x_min = max(0, x_min)
+        y_min = max(0, y_min)
+        x_max = min(w_rgb, x_max)
+        y_max = min(h_rgb, y_max)
 
-    return resized_rgb
+        # Crop
+        cropped_rgb = rgb_img[y_min:y_max, x_min:x_max]
+
+        # Resize to match IR dimensions exactly
+        resized_rgb = cv2.resize(cropped_rgb, (w_ir, h_ir), interpolation=cv2.INTER_LINEAR)
+
+        return resized_rgb
 
 
-
+'''
 def resizeIRToMatchRGB(ir_img, cropped_rgb_img):
     # Get target size from cropped RGB
     target_size = (cropped_rgb_img.shape[1], cropped_rgb_img.shape[0])  # (width, height)
@@ -68,7 +73,7 @@ def resizeIRToMatchRGB(ir_img, cropped_rgb_img):
 
     return resized_ir
 
-'''
+
 eo_img = cv2.imread('RGB-Test/RGB-1.jpg')
 ir_img = cv2.imread('IR_Test/IR-1.jpg')
 

@@ -17,7 +17,7 @@ class DetectionManager:
         self.image_queue = Queue()
         self.detections_queue = Queue()
         self.results_queue = Queue()
-        self.gps_queue = Queue()
+        self.gps_callback = None
 
         self.detections = []
         self.results = []
@@ -30,7 +30,9 @@ class DetectionManager:
         self.camera: CameraMetadata | None = camera_metadata
         self.georeference_engine = georeference_engine
         self.terminated = False
-
+        
+    def setGPSCallback(self, callback):
+        self.gps_callback = callback
 
     def update(self):
         self.updateDetections()
@@ -52,17 +54,7 @@ class DetectionManager:
             pass
         else:
             print(detection.gps_coords)
-            self.gps_queue.put(detection.gps_coords)
             self.detections.append(detection)
-
-    
-    def getGPS(self):
-        if self.gps_queue.qsize() > 0:
-            return self.gps_queue.get()
-        else:
-            return None
-
-
 
     
     def queueImage(self, image: QueuedImage):
@@ -89,20 +81,6 @@ class DetectionManager:
                             self.active_threads.append(t)
 
 
-    def processGPSQueue(self):
-        gps_coords = []
-        while (self.gps_queue.qsize() > 0):
-            try:
-                gps_info = self.gps_queue.get_nowait()
-            except Empty:
-                break
-            else:
-                gps_coords.append(gps_info)
-                if len(gps_coords) > 10:
-                    break
-        return gps_coords
-
-
     def pruneThreads(self):
         self.active_threads = [ t for t in self.active_threads if t.is_alive()]
 
@@ -119,7 +97,8 @@ class DetectionManager:
             detection.gps_coords = self.georeference(detection.pixel_coords, platform_state, self.camera, self.georeference_engine.altitude_offset)
         
         if not self.checkForDuplicates(detection):
-            self.gps_queue.put(detection.gps_coords)
+            if self.gps_callback:
+                self.gps_callback(detection.gps_coords)
             self.detections_queue.put(detection)
     
     def checkForDuplicates(self, detection: Detection):

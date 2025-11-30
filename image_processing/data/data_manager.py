@@ -10,6 +10,7 @@ class ImageDataset:
     name: str
     shape: tuple[int]
     dtype: str
+    directory: Optional[str] = None
 
 class DataManager:
     def __init__(
@@ -20,6 +21,9 @@ class DataManager:
         self.filename = filename
         self.file = None
         self.image_datasets = image_datasets
+        self.dataset_map = {
+            ds.name: idx for idx, ds in enumerate(self.image_datasets)
+        }
 
     # ---------- helpers ----------
     @staticmethod

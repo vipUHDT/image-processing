@@ -65,6 +65,6 @@ def fuse_images(img1, img2, M, N, A, B):
             fused[i:i+M, j:j+N] = Bz
             
             # Fill alpha maps
-            #alpha_block = np.full((M, N), alpha)
-            #alpha_map[i:i+M, j:j+N] = alpha_block
+            alpha_block = np.full((M, N), alpha)
+            alpha_map[i:i+M, j:j+N] = alpha_block
     return fused, alpha_map, expand_rgb,expand_ir

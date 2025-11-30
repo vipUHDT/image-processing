@@ -62,7 +62,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
       
     fused_V,alpha_map , rgb_weight,ir_weight = fuse_images(V_visible, infrared, M, N, A, B)
     # Slightly boost brightness in IR-dominant areas
-    ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
+    #ir_strength_mask = infrared > 0.3  # Adjust threshold as needed
 
     '''
     testing size
@@ -72,7 +72,7 @@ def FuzzyFusion(eo_img, ir_img, block_size=(8, 8), subblock_resolution=(15, 15),
     print("fused_V.shape:", fused_V.shape)
     '''
 
-    fused_V[ir_strength_mask] = np.clip(fused_V[ir_strength_mask] * 1.15, 0, 1)
+    #fused_V[ir_strength_mask] = np.clip(fused_V[ir_strength_mask] * 1.15, 0, 1)
     # Recombine HSV
     H,W =H_channel.shape
     fused_rgb = np.zeros((H , W , 3), dtype=np.float32)

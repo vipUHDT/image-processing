@@ -5,7 +5,7 @@ import numpy as np
 def fuzzy_transform(block, A, B):
     m, n = A.shape[0], B.shape[0]
     SB = np.zeros((m, n))
-    weight_block = np.zeros((8,8))
+    weight_block = np.zeros((10,10))
     for k in range(m):
         for l in range(n):
             weights = np.outer(A[k], B[l])

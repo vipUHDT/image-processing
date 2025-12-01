@@ -39,6 +39,7 @@ def plan_mission(airdrop_coords, photo_width_px, photo_height_px,
     v_fov_rad = math.radians(vertical_fov_deg)
     ground_width = 2 * altitude * math.tan(h_fov_rad / 2)
     ground_height = 2 * altitude * math.tan(v_fov_rad / 2)
+    print(f"Ground Height: {ground_width} x {ground_height} m")
 
     step_x = ground_width * (1 - overlap_percent / 100.0)
     step_y = ground_height * (1 - overlap_percent / 100.0)

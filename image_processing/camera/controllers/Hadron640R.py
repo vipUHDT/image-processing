@@ -230,7 +230,7 @@ class OV64B(Camera):
                 "! video/x-h264,stream-format=byte-stream,alignment=au "
                 "! rtph264pay pt=96 mtu=1200 config-interval=1 "
                 "! udpsink host=$client port=$port sync=false async=false "
-                "t. ! queue max-size-buffers=0 max-size-time=50000000 max-size-bytes=0 leaky=downstream "
+                "t. ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 "
                 "! h264parse "
                 "! video/x-h264,stream-format=avc,alignment=au "
                 "! mp4mux faststart=true "

@@ -1,9 +1,11 @@
-import cv2
+"""Frame extraction utilities for single videos and synchronized video pairs."""
+
 import math
 from pathlib import Path
-from tqdm import tqdm
-from typing import Optional, Tuple 
+from typing import Optional, Tuple
 
+import cv2
+from tqdm import tqdm
 
 
 def extractFrames(
@@ -11,6 +13,21 @@ def extractFrames(
     output_dir: Path | str = "frames",
     offset: int = 0
 ):
+    """
+    Extract every frame of a video to PNG files.
+
+    Frames are written to ``output_dir`` as ``frame_<index>.png``, starting
+    ``offset`` seconds into the video.
+
+    Parameters
+    ----------
+    video_path : Path or str
+        Path to the input video.
+    output_dir : Path or str, optional
+        Directory for the extracted frames; created if missing.
+    offset : int, optional
+        Number of seconds to skip at the start of the video.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +87,33 @@ def extractSynchronizedFrames(
     t_end: float | None = None,
     time_tolerance: float = 1 / 60.0,
 ) -> None:
+    """
+    Extract time-aligned frame pairs from two videos with different frame rates.
+
+    A shared timeline is sampled at ``target_fps`` over the overlapping window
+    of both videos; at each step, the closest frame from each video is saved
+    (``cam0_<index>.png`` / ``cam1_<index>.png``) if both fall within
+    ``time_tolerance`` of the target timestamp.
+
+    Parameters
+    ----------
+    video0, video1 : str or Path
+        Paths to the two input videos.
+    out_dir0, out_dir1 : str or Path
+        Output directories for the paired frames; created if missing.
+    offset0, offset1 : float, optional
+        Time in seconds at which each video's first frame occurs on the
+        shared timeline (compensates for recording start offsets).
+    target_fps : float, optional
+        Sampling rate of the shared timeline. Defaults to the lower of the
+        two videos' frame rates.
+    t_start, t_end : float, optional
+        Bounds of the extraction window on the shared timeline. Default to
+        the overlapping portion of both videos.
+    time_tolerance : float, optional
+        Maximum frame-to-target time difference in seconds for a pair to be
+        saved (default 1/60 s).
+    """
     video0 = str(video0)
     video1 = str(video1)
 
@@ -170,6 +214,7 @@ def extractSynchronizedFrames(
     print(f"  - {out_dir1}")
 
 def _readNext(cap: cv2.VideoCapture) -> Tuple[bool, Optional[cv2.Mat], float]:
+    """Read the next frame and its timestamp in seconds; ``(False, None, inf)`` at EOF."""
     ret, frame = cap.read()
     if not ret:
         return False, None, math.inf

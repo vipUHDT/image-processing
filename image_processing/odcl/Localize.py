@@ -1,19 +1,42 @@
+"""Georeferencing of image pixel coordinates to GPS positions.
+
+Each backend converts a pixel location in a nadir-pointing camera image to a
+latitude/longitude using the platform's position, altitude, and yaw plus the
+camera's intrinsics; they differ in the map projection used for the local
+offset math (UTM, local ENU, azimuthal equidistant, or a flat-earth
+approximation).
+"""
+
 import math
-from pyproj import Transformer
-import math
-from image_processing import *
-from image_processing.camera import *
 from dataclasses import astuple
+
 import pymap3d as pm
+from pyproj import Transformer
+
+from image_processing import PlatformState
+from image_processing.camera import CameraMetadata
 
 
 class Georeference_Engine:
+    """
+    Dispatches georeferencing to a selected projection backend.
+
+    Parameters
+    ----------
+    backend : str
+        One of ``"utm"``, ``"enu"``, ``"aeqd"``, or ``"manual"``.
+    altitude_offset : float, optional
+        Ground elevation subtracted from the platform altitude to get
+        height above ground level.
+    """
+
     def __init__(self, backend, altitude_offset=0):
         self.camera_metadata = None
         self.backend = self.getBackends(backend)
         self.altitude_offset = altitude_offset
 
     def getBackends(self, backend):
+        """Return the georeferencing function registered under ``backend``."""
         backends = {
             "utm": georeference_utm,
             "enu": georeference_enu,
@@ -34,6 +57,20 @@ class Georeference_Engine:
         camera_metadata: CameraMetadata,
         altitude_offset = 0
     ):
+        """
+        Convert a pixel coordinate to ``(latitude, longitude)``.
+
+        Parameters
+        ----------
+        target_pixel_coordinates : tuple[int, int]
+            ``(x, y)`` pixel position of the target in the image.
+        platform_state : PlatformState
+            Platform position and attitude at capture time.
+        camera_metadata : CameraMetadata
+            Camera intrinsics (sensor size, resolution, focal length).
+        altitude_offset : float, optional
+            Ground elevation subtracted from the platform altitude.
+        """
         altitude, latitude, longitude, pitch, yaw, roll = astuple(platform_state)
         sensor_width, sensor_height, image_width, image_height, focal_length = astuple(
             camera_metadata
@@ -66,6 +103,7 @@ def georeference_utm(
     pix_height,
     focal_length,
 ):
+    """Georeference a pixel by offsetting the platform position in UTM coordinates."""
     # Constants for image resolution and camera field of view
     pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
     horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
@@ -97,7 +135,6 @@ def georeference_utm(
     target_pixel_x, target_pixel_y = target_pixel_coordinates
     image_center_x, image_center_y = pixel_resolution[0] / 2, pixel_resolution[1] / 2
     delta_x, delta_y = target_pixel_x - image_center_x, target_pixel_y - image_center_y
-    delta_y *= 1
 
     # Adjust for drone's yaw (orientation)
     drone_yaw_rad = math.radians(drone_yaw)
@@ -135,6 +172,7 @@ def georeference_enu(
     pix_height,
     focal_length,
 ):
+    """Georeference a pixel using a local East-North-Up frame centered on the platform."""
     # Adjust altitude if necessary
     altitude = drone_altitude - altitude_offset
 
@@ -152,7 +190,6 @@ def georeference_enu(
 
     delta_x = target_pixel_x - image_center_x
     delta_y = target_pixel_y - image_center_y
-    delta_y *= 1  # Flip y to match ENU
 
     # Rotate according to yaw (convert to radians)
     yaw_rad = math.radians(drone_yaw)
@@ -190,12 +227,11 @@ def georeference_aeqd(
     pix_height,
     focal_length,
 ):
+    """Georeference a pixel using an azimuthal equidistant projection centered on the platform."""
     # Constants for image resolution and camera field of view
     pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
-    horiz_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
-    vert_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))
-    horizontal_fov = horiz_fov  # Horizontal field of view in degrees
-    vertical_fov = vert_fov  # Vertical field of view in degrees
+    horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
+    vertical_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))
 
     altitude = drone_altitude - altitude_offset
 
@@ -216,7 +252,6 @@ def georeference_aeqd(
     target_pixel_x, target_pixel_y = target_pixel_coordinates
     image_center_x, image_center_y = pixel_resolution[0] / 2, pixel_resolution[1] / 2
     delta_x, delta_y = target_pixel_x - image_center_x, target_pixel_y - image_center_y
-    delta_y *= 1
 
     # Adjust for drone's yaw (orientation)
     drone_yaw_rad = math.radians(drone_yaw)
@@ -254,6 +289,7 @@ def georeference_manual(
     pix_height,
     focal_length,
 ):
+    """Georeference a pixel using a flat-earth (meters-per-degree) approximation."""
     # Constants
     pixel_resolution = (pix_width, pix_height)
 
@@ -282,7 +318,6 @@ def georeference_manual(
     # Calculate distance from image center to target pixel
     delta_x = target_pixel_x - image_center_x
     delta_y = target_pixel_y - image_center_y
-    delta_y *= 1
 
     # Calculate distance from image center to target pixel after correction
     corrected_delta_x = delta_x * math.cos(drone_yaw_rad) - delta_y * math.sin(
@@ -313,9 +348,8 @@ def georeference_manual(
     return target_latitude, target_longitude
 
 
-# Return Distance Between Two GPS points in meters
 def haversine(lat1, lon1, lat2, lon2):
-
+    """Return the great-circle distance in meters between two GPS points."""
     # convert decimal degrees to radians
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
 

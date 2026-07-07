@@ -6,7 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "image-processing"
 version = "0.1.0"
 description = "Internal package used by UHDT for image processing"
+readme = "README.md"
+requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["image_processing*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# E: pycodestyle errors, F: pyflakes, I: import sorting
+select = ["E", "F", "I"]
+ignore = ["E501"]

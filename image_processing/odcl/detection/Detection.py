@@ -1,17 +1,40 @@
-from sahi.predict import get_sliced_prediction, get_prediction
+"""Object detection primitives built on SAHI (sliced inference)."""
+
 import os
-import cv2
-from sahi.prediction import ObjectPrediction, PredictionResult
-from .SahiConfig import SahiConfig
 from typing import Optional
+
+import cv2
 import numpy as np
+from sahi.predict import get_prediction, get_sliced_prediction
+from sahi.prediction import ObjectPrediction, PredictionResult
+
 from image_processing.results import ModelResult
-from image_processing.tools.hash import hashFile
-from sahi.models.base import DetectionModel
-from .SahiConfig import SahiDetectionModel, ModelConfig
+
+from .SahiConfig import ModelConfig, SahiConfig, SahiDetectionModel
 
 
 class Detection:
+    """
+    A single detected object with its location and provenance.
+
+    Parameters
+    ----------
+    classification : str
+        Predicted class label.
+    confidence : float
+        Prediction confidence in ``[0, 1]``.
+    pixel_coords : tuple[int, int]
+        Center of the detection's bounding box in image coordinates.
+    image : cv2.typing.MatLike
+        Full source image the detection came from.
+    cropped_image : cv2.typing.MatLike, optional
+        Crop of the detection's bounding box.
+    gps_coords : tuple[float, float], optional
+        Georeferenced position, filled in by ``DetectionManager``.
+    timestamp : str, optional
+        Capture timestamp.
+    """
+
     def __init__(
         self,
         classification: str,
@@ -49,16 +72,29 @@ class Detection:
 
 
 class DetectionModelResult(ModelResult):
+    """All detections produced by one model run on one image."""
+
     def __init__(self, model_name: Optional[str] = None, model_hash: Optional[str] = None, image: Optional[cv2.typing.MatLike] = None):
         super().__init__(model_name, model_hash)
         self.image = image
         self.detections = []
-    
+
     def add(self, detection: Detection):
+        """Append a detection to this result."""
         self.detections.append(detection)
 
 
 class Detector:
+    """
+    Runs object-detection inference through a configured backend (currently SAHI).
+
+    Parameters
+    ----------
+    model_config : ModelConfig, optional
+        Model and backend configuration. A ``SahiConfig`` backend config
+        selects the SAHI backend.
+    """
+
     def __init__(self, model_config: Optional[ModelConfig]  = None):
         self.backend = None
         self.model_config: ModelConfig | None = None
@@ -69,6 +105,7 @@ class Detector:
         self.setModelConfig(model_config)
     
     def setModelConfig(self, model_config: Optional[ModelConfig]):
+        """Set the model configuration and derive the backend from it."""
         self.model_config = model_config
         if self.model_config and isinstance(self.model_config.backend_config, SahiConfig):
             self.backend = "sahi"
@@ -76,6 +113,7 @@ class Detector:
             self.backend = None
        
     def loadModel(self):
+        """Instantiate the detection model from the current configuration."""
         if isinstance(self.model_config, ModelConfig):
             if self.backend == "sahi":
                 self.model = SahiDetectionModel(
@@ -86,6 +124,7 @@ class Detector:
                 )
 
     def initializeModel(self):
+        """Warm up the model with a dummy inference to trigger lazy initialization."""
         h, w = (64, 64)
         dummy = np.zeros((h, w, 3), dtype=np.uint8)
         _ = self.run(dummy)
@@ -97,11 +136,28 @@ class Detector:
         export_dir: str = os.getcwd(),
         file_name: str = "visual.png",
     ):
+        """Export the backend's annotated visualization of ``results`` to disk."""
         if results and self.backend:
             if self.backend == "sahi":
                 results.export_visuals(export_dir=export_dir, file_name=file_name)
 
     def parseResults(self, results: PredictionResult, padding=0) -> tuple[DetectionModelResult, list[Detection]]:
+        """
+        Convert backend predictions into ``Detection`` objects.
+
+        Parameters
+        ----------
+        results : PredictionResult
+            Raw backend output from ``run``.
+        padding : int, optional
+            Pixels of padding applied around each bounding box before
+            cropping (clamped to the image bounds).
+
+        Returns
+        -------
+        tuple[DetectionModelResult, list[Detection]]
+            The aggregate result and the individual detections.
+        """
         detections: list[Detection] = []
         detection_model_result = DetectionModelResult(self.model_path, self.model_hash)
         if results and self.backend:
@@ -139,6 +195,7 @@ class Detector:
         return detection_model_result, detections
 
     def run(self, image: cv2.typing.MatLike) -> Optional[PredictionResult]:
+        """Run inference on an image, sliced or whole per the backend config."""
         if self.model_config:
             if self.backend == "sahi":
                 sahi_config = self.model_config.backend_config
@@ -201,17 +258,16 @@ class Detector:
         `[x_min, y_min, x_max, y_max]` format.
 
         This method normalizes bounding box outputs so that the same format is
-        returned regardless of the configured backend. If the prediction is
-        invalid, None, or cannot be converted, an empty list is returned.
+        returned regardless of the configured backend.
 
         Args:
             object_prediction (ObjectPrediction | None): The prediction object
                 from which to extract the bounding box.
 
         Returns:
-            Optional[tuple[int, int, int, int]]: A list of four float values representing the bounding box
-            coordinates `[x_min, y_min, x_max, y_max]`. Returns an empty list if
-            no valid bounding box can be obtained.
+            Optional[tuple[int, int, int, int]]: The bounding box coordinates
+            `(x_min, y_min, x_max, y_max)`, or None if no valid bounding box
+            can be obtained.
         """
         if self.backend:
             if self.backend == "sahi" and isinstance(
@@ -226,21 +282,15 @@ class Detector:
         self, bounding_box: tuple[int, int, int, int]
     ) -> tuple[int, int]:
         """
-        Compute the center point of an object's bounding box.
-
-        The bounding box is first extracted in `[x_min, y_min, x_max, y_max]` format
-        using `getBoundingBox`. The center coordinates are then calculated as the
-        midpoint of the bounding box edges.
+        Compute the center point of a bounding box.
 
         Args:
-            object_prediction (ObjectPrediction | None): The prediction object
-                from which to extract the bounding box. If None or invalid, the
-                result will be (None, None).
+            bounding_box (tuple[int, int, int, int]): Bounding box in
+                `(x_min, y_min, x_max, y_max)` format.
 
         Returns:
-            tuple[float | None, float | None]: A tuple `(center_x, center_y)`
-            representing the bounding box center in image coordinates. If no valid
-            bounding box is available, returns `(None, None)`.
+            tuple[int, int]: The `(center_x, center_y)` of the box in image
+            coordinates, or `(-1, -1)` when no backend is configured.
         """
         center_x, center_y = None, None
         if self.backend:

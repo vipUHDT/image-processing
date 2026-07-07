@@ -1,11 +1,33 @@
-import paramiko
+"""SFTP file transfer to and from remote devices."""
+
 import logging
-from typing import Optional, List
+from typing import List, Optional
+
+import paramiko
 
 LOGGER = logging.getLogger(__name__)
 
 
 class SFTPController:
+    """
+    Manage an SFTP session for file transfer with a remote device.
+
+    Operations are no-ops (with a warning logged) when not connected, and
+    errors are logged rather than raised so a flaky link does not crash the
+    calling pipeline.
+
+    Parameters
+    ----------
+    remote_addr : str
+        Hostname or IP address of the remote device.
+    username : str
+        SFTP username.
+    password : str
+        SFTP password.
+    port : int, optional
+        SSH port (default 22).
+    """
+
     def __init__(
         self,
         remote_addr: str,

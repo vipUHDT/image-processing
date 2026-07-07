@@ -1,10 +1,14 @@
-import math
+"""Survey-mission planning: lawnmower waypoint grids, exports, and map previews."""
+
 import json
-from shapely.geometry import Polygon
+import math
+
 from pyproj import Transformer
+from shapely.geometry import Polygon
 
 
 def haversine_distance(point1, point2):
+    """Return the great-circle distance in meters between two ``(lat, lon, alt)`` points."""
     lat1, lon1, _ = point1
     lat2, lon2, _ = point2
 
@@ -22,11 +26,13 @@ def haversine_distance(point1, point2):
 
 
 def calculate_total_distance(waypoints):
+    """Return the total path length in meters over a sequence of ``(lat, lon, alt)`` waypoints."""
     return sum(haversine_distance(waypoints[i - 1], waypoints[i])
                for i in range(1, len(waypoints)))
 
 
 def rotate_point_local(point, angle):
+    """Rotate a 2-D point around the origin by ``angle`` radians."""
     x, y = point
     return (x * math.cos(angle) - y * math.sin(angle),
             x * math.sin(angle) + y * math.cos(angle))
@@ -35,6 +41,36 @@ def rotate_point_local(point, angle):
 def plan_mission(airdrop_coords, photo_width_px, photo_height_px,
                  horizontal_fov_deg, vertical_fov_deg, overlap_percent,
                  altitude=100, row_traversal=False):
+    """
+    Plan a lawnmower survey pattern covering a polygonal search area.
+
+    The area is projected to UTM, aligned to its minimum rotated rectangle,
+    and tiled with camera footprints computed from the flight altitude and
+    field of view, spaced for the requested overlap.
+
+    Parameters
+    ----------
+    airdrop_coords : list[tuple[float, float]]
+        Boundary vertices as ``(lat, lon)`` pairs.
+    photo_width_px, photo_height_px : int
+        Image resolution (currently informational).
+    horizontal_fov_deg, vertical_fov_deg : float
+        Camera field of view in degrees.
+    overlap_percent : float
+        Desired overlap between adjacent footprints, 0-100.
+    altitude : float, optional
+        Flight altitude in meters (default 100).
+    row_traversal : bool, optional
+        Traverse the grid row-by-row instead of column-by-column.
+
+    Returns
+    -------
+    tuple
+        ``(gps_waypoints, angle, rect_centroid, transformer_to_utm,
+        transformer_from_utm, ground_width, ground_height, n_cols, n_rows,
+        area_m2)`` where ``gps_waypoints`` is a list of
+        ``(lat, lon, altitude)`` tuples in boustrophedon order.
+    """
     h_fov_rad = math.radians(horizontal_fov_deg)
     v_fov_rad = math.radians(vertical_fov_deg)
     ground_width = 2 * altitude * math.tan(h_fov_rad / 2)
@@ -98,7 +134,6 @@ def plan_mission(airdrop_coords, photo_width_px, photo_height_px,
 
     if row_traversal:
         grid = []
-        grid = []
         for j in range(n_rows):
             row = []
             for i in range(n_cols):
@@ -123,8 +158,7 @@ def plan_mission(airdrop_coords, photo_width_px, photo_height_px,
             if i % 2 == 0:
                 col.reverse()
             grid.append(col)
-        
-       
+
         grid = grid[::-1]
 
     grid_points_rot = [pt for collection in grid for pt in collection]
@@ -142,6 +176,7 @@ def plan_mission(airdrop_coords, photo_width_px, photo_height_px,
 
 
 def save_to_mission_planner_file(waypoints, filename="mission.waypoints", reverse=False):
+    """Write waypoints to a Mission Planner / QGroundControl ``.waypoints`` file."""
     with open(filename, 'w') as f:
         f.write("QGC WPL 110\n")
         for i, (lat, lon, alt) in enumerate(waypoints):
@@ -149,6 +184,7 @@ def save_to_mission_planner_file(waypoints, filename="mission.waypoints", revers
     print(f"Saved Mission Planner file as '{filename}' ({'reversed' if reverse else 'normal'} order)")
 
 def export_search_area_waypoints(search_waypoints, filepath):
+    """Write waypoints to a JSON file under the ``search_waypoints`` key."""
     json_data = [[lat, lon, alt] for lat, lon, alt in search_waypoints]
     with open(filepath, "w") as f:
         json.dump({"search_waypoints": json_data}, f, indent=4)
@@ -156,6 +192,7 @@ def export_search_area_waypoints(search_waypoints, filepath):
     print(f"Saved waypoints to {filepath}")
     
 def sort_coordinates(coordinates):
+    """Order four boundary corners as top-left, top-right, bottom-left, bottom-right."""
     sorted_by_y = sorted(coordinates, key=lambda coord: (-coord[1], coord[0]))
     highest = sorted(sorted_by_y[:2], key=lambda c: c[0])
     lowest = sorted(sorted_by_y[2:], key=lambda c: c[0])
@@ -165,7 +202,14 @@ def sort_coordinates(coordinates):
 def export_map(map_file_path, boundary_coords, drone_waypoints, angle, rect_centroid,
                transformer_to_utm, transformer_from_utm, ground_width, ground_height,
                n_cols, n_rows, mission_planner_file):
-    from offline_folium import offline
+    """
+    Render the mission to an interactive HTML map and Mission Planner file.
+
+    Draws the boundary points, numbered waypoints, flight path, and each
+    waypoint's camera footprint on a folium map saved to ``map_file_path``,
+    and writes the waypoints to ``mission_planner_file``.
+    """
+    from offline_folium import offline  # noqa: F401 - enables folium offline assets
     import folium
     center_lat = sum(pt[0] for pt in boundary_coords) / len(boundary_coords)
     center_lon = sum(pt[1] for pt in boundary_coords) / len(boundary_coords)
@@ -218,6 +262,13 @@ def generate_mission_from_params(bounds, photo_width, photo_height,
                                  mission_planner_file="mission.waypoints",
                                  is_reversed=False,
                                  row_traversal=False):
+    """
+    Plan a survey mission and export the waypoint JSON, HTML map, and
+    Mission Planner file in one call.
+
+    Parameters mirror ``plan_mission``; ``bounds`` is a list of four
+    ``(lat, lon)`` corners and ``is_reversed`` flies the pattern backwards.
+    """
     boundary_coords = sort_coordinates(bounds)
     (drone_waypoints, angle, rect_centroid, transformer_to_utm, transformer_from_utm,
      ground_width, ground_height, n_cols, n_rows, area) = plan_mission(

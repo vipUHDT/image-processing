@@ -1,4 +1,10 @@
+"""Configuration dataclasses and model factory for SAHI-based detection."""
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, Type, overload
+
 from sahi import AutoDetectionModel
+from sahi.models.base import DetectionModel
 from sahi.postprocess.combine import (
     GreedyNMMPostprocess,
     LSNMSPostprocess,
@@ -7,10 +13,6 @@ from sahi.postprocess.combine import (
     PostprocessPredictions,
 )
 
-from dataclasses import dataclass, field
-from typing import Dict, Type, Any, overload, Optional
-from sahi.models.base import DetectionModel
-from sahi import AutoDetectionModel
 
 class SahiDetectionModel(AutoDetectionModel):
     """

@@ -1,18 +1,49 @@
+"""HDF5-backed storage for flight image frames, metadata, and detections."""
+
+from dataclasses import dataclass
+from typing import Optional
+
 import h5py
 import numpy as np
-import cv2
-import os
-from typing import Optional
-from dataclasses import dataclass
+
 
 @dataclass
 class ImageDataset:
+    """Description of one appendable image dataset in the HDF5 file.
+
+    Attributes
+    ----------
+    name : str
+        Dataset name (e.g., ``"rgb"``, ``"ir"``).
+    shape : tuple[int, ...]
+        Shape of a single frame, e.g. ``(1080, 1920, 3)``.
+    dtype : str
+        NumPy dtype string for the stored frames.
+    directory : str, optional
+        Source directory associated with this dataset.
+    """
+
     name: str
     shape: tuple[int]
     dtype: str
     directory: Optional[str] = None
 
+
 class DataManager:
+    """
+    Store camera frames and key/value metadata in a single HDF5 file.
+
+    Call ``initialize`` to open the file and create the datasets before
+    using any other method, and ``close`` when finished.
+
+    Parameters
+    ----------
+    filename : str, optional
+        Path of the HDF5 file (default ``"flight.hdf5"``).
+    image_datasets : list[ImageDataset], optional
+        Image datasets to create under ``camera/images``.
+    """
+
     def __init__(
         self,
         filename: str = "flight.hdf5",
@@ -20,7 +51,7 @@ class DataManager:
     ):
         self.filename = filename
         self.file = None
-        self.image_datasets = image_datasets
+        self.image_datasets = image_datasets or []
         self.dataset_map = {
             ds.name: idx for idx, ds in enumerate(self.image_datasets)
         }
@@ -113,6 +144,7 @@ class DataManager:
 
     # ---------- top-level metadata ops ----------
     def add_metadata(self, key: str, value: str):
+        """Set a top-level metadata key, overwriting any existing value."""
         keys = self._read_str_dset(self.meta_keys)
         where = np.where(keys == key)[0]
         if where.size:
@@ -123,6 +155,7 @@ class DataManager:
             self.meta_keys[n] = key; self.meta_vals[n] = value  # type: ignore
 
     def get_metadata_value(self, key: str) -> str:
+        """Return the value stored for a metadata key. Raises ``KeyError`` if absent."""
         keys = self._read_str_dset(self.meta_keys)
         vals = self._read_str_dset(self.meta_vals)
         where = np.where(keys == key)[0]
@@ -131,6 +164,7 @@ class DataManager:
         return vals[where[0]]  # type: ignore
 
     def list_metadata(self):
+        """Print all metadata key/value pairs."""
         keys = self._read_str_dset(self.meta_keys)
         vals = self._read_str_dset(self.meta_vals)
         for k, v in zip(keys, vals):
@@ -138,6 +172,7 @@ class DataManager:
 
     # ---------- detections ops (datasets, like metadata) ----------
     def add_detection(self, key: str, value: str):
+        """Set a detection key, overwriting any existing value."""
         keys = self._read_str_dset(self.det_keys)
         where = np.where(keys == key)[0]
         if where.size:
@@ -148,6 +183,7 @@ class DataManager:
             self.det_keys[n] = key; self.det_vals[n] = value  # type: ignore
 
     def get_detection_value(self, key: str) -> str:
+        """Return the value stored for a detection key. Raises ``KeyError`` if absent."""
         keys = self._read_str_dset(self.det_keys)
         vals = self._read_str_dset(self.det_vals)
         where = np.where(keys == key)[0]
@@ -156,6 +192,7 @@ class DataManager:
         return vals[where[0]]  # type: ignore
 
     def list_detections(self):
+        """Print all detection key/value pairs."""
         keys = self._read_str_dset(self.det_keys)
         vals = self._read_str_dset(self.det_vals)
         for k, v in zip(keys, vals):
@@ -163,24 +200,35 @@ class DataManager:
 
     # ---------- append frames ----------
     def append_rgb(self, frame: np.ndarray):
+        """Append a frame to the ``rgb`` dataset."""
         self.append_frame("rgb", frame)
-       
+
     def append_ir(self, frame: np.ndarray):
+        """Append a frame to the ``ir`` dataset."""
         self.append_frame("ir", frame)
 
     def append_frame(self, dataset_name: str, frame: np.ndarray):
-        if self.cidata[dataset_name]:
-            d = self.cidata[dataset_name]
-            if frame.shape != d.shape[1:]:
-                raise ValueError(f"Frame for {dataset_name} must be {d.shape[1:]} but got {frame.shape}")
-            else:
-                n = d.shape[0]
-                d.resize((n+1, *d.shape[1:]))
-                d[n, ...] = frame.astype(d.dtype, copy=False)
+        """
+        Append a frame to a named image dataset.
 
+        Raises ``KeyError`` if the dataset does not exist and ``ValueError``
+        if the frame shape does not match the dataset's frame shape.
+        """
+        if dataset_name not in self.cidata:
+            raise KeyError(
+                f"Image dataset '{dataset_name}' does not exist. "
+                f"Available: {list(self.cidata)}"
+            )
+        d = self.cidata[dataset_name]
+        if frame.shape != d.shape[1:]:
+            raise ValueError(f"Frame for {dataset_name} must be {d.shape[1:]} but got {frame.shape}")
+        n = d.shape[0]
+        d.resize((n + 1, *d.shape[1:]))
+        d[n, ...] = frame.astype(d.dtype, copy=False)
 
     # ---------- close ----------
     def close(self):
+        """Flush and close the HDF5 file."""
         if self.file:
             self.file.flush()
             self.file.close()

@@ -5,10 +5,18 @@ latitude/longitude using the platform's position, altitude, and yaw plus the
 camera's intrinsics; they differ in the map projection used for the local
 offset math (UTM, local ENU, azimuthal equidistant, or a flat-earth
 approximation).
+
+Conventions
+-----------
+- The camera points straight down (nadir) and is mounted so the top of the
+  image faces the aircraft's heading direction.
+- Pixel ``x`` increases to the right, pixel ``y`` increases downward.
+- ``yaw`` is the compass heading in degrees, clockwise from true north.
 """
 
 import math
 from dataclasses import astuple
+from functools import lru_cache
 
 import pymap3d as pm
 from pyproj import Transformer
@@ -55,7 +63,7 @@ class Georeference_Engine:
         target_pixel_coordinates: tuple[int, int],
         platform_state: PlatformState,
         camera_metadata: CameraMetadata,
-        altitude_offset = 0
+        altitude_offset=None,
     ):
         """
         Convert a pixel coordinate to ``(latitude, longitude)``.
@@ -70,7 +78,10 @@ class Georeference_Engine:
             Camera intrinsics (sensor size, resolution, focal length).
         altitude_offset : float, optional
             Ground elevation subtracted from the platform altitude.
+            Defaults to the offset the engine was constructed with.
         """
+        if altitude_offset is None:
+            altitude_offset = self.altitude_offset
         altitude, latitude, longitude, pitch, yaw, roll = astuple(platform_state)
         sensor_width, sensor_height, image_width, image_height, focal_length = astuple(
             camera_metadata
@@ -90,6 +101,61 @@ class Georeference_Engine:
         )
 
 
+def _pixel_to_east_north(
+    target_pixel_coordinates,
+    drone_altitude,
+    altitude_offset,
+    drone_yaw,
+    sensor_w,
+    sensor_h,
+    pix_width,
+    pix_height,
+    focal_length,
+) -> tuple[float, float]:
+    """
+    Convert a pixel position to the target's (east, north) offset in meters
+    from the point directly below the platform.
+
+    The pixel offset from the image center is first scaled to meters on the
+    ground (using the footprint implied by the pinhole model at the platform's
+    height above ground), then rotated by the compass heading. Scaling must
+    happen before rotation because the per-axis meters-per-pixel factors
+    differ.
+    """
+    altitude = drone_altitude - altitude_offset
+
+    # Ground footprint of the image at this height above ground. The
+    # trigonometry reduces to footprint = altitude * sensor / focal_length.
+    ground_width = altitude * sensor_w / focal_length
+    ground_height = altitude * sensor_h / focal_length
+
+    target_pixel_x, target_pixel_y = target_pixel_coordinates
+    delta_x = target_pixel_x - pix_width / 2
+    delta_y = target_pixel_y - pix_height / 2
+
+    # Camera frame in meters: +right of heading, +forward along heading.
+    # Pixel y grows downward, i.e. opposite the heading direction.
+    right_m = delta_x * ground_width / pix_width
+    forward_m = -delta_y * ground_height / pix_height
+
+    # Rotate camera frame into ENU. Yaw is clockwise from north, so
+    # heading 0 maps forward->north, heading 90 maps forward->east.
+    yaw_rad = math.radians(drone_yaw)
+    east = right_m * math.cos(yaw_rad) + forward_m * math.sin(yaw_rad)
+    north = forward_m * math.cos(yaw_rad) - right_m * math.sin(yaw_rad)
+
+    return east, north
+
+
+@lru_cache(maxsize=32)
+def _projection_transformers(crs_projected: str) -> tuple[Transformer, Transformer]:
+    """Return cached (to-projected, to-geodetic) transformers for a CRS."""
+    return (
+        Transformer.from_crs("EPSG:4326", crs_projected, always_xy=True),
+        Transformer.from_crs(crs_projected, "EPSG:4326", always_xy=True),
+    )
+
+
 def georeference_utm(
     target_pixel_coordinates,
     drone_latitude,
@@ -104,57 +170,29 @@ def georeference_utm(
     focal_length,
 ):
     """Georeference a pixel by offsetting the platform position in UTM coordinates."""
-    # Constants for image resolution and camera field of view
-    pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
-    horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
-    vertical_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))
+    east, north = _pixel_to_east_north(
+        target_pixel_coordinates,
+        drone_altitude,
+        altitude_offset,
+        drone_yaw,
+        sensor_w,
+        sensor_h,
+        pix_width,
+        pix_height,
+        focal_length,
+    )
 
-    altitude = drone_altitude - altitude_offset
-
-    # Calculate the real-world dimensions of the image at the target altitude
-    image_width = 2 * altitude * math.tan(math.radians(horizontal_fov / 2))
-    image_height = 2 * altitude * math.tan(math.radians(vertical_fov / 2))
-
-    # Calculate the UTM zone based on the drone's initial longitude
+    # UTM zone from the drone's longitude; 326xx north, 327xx south.
     utm_zone = int((drone_longitude + 180) // 6) + 1
-    hemisphere_code = (
-        326 if drone_latitude >= 0 else 327
-    )  # 326 for Northern Hemisphere, 327 for Southern
-    crs_projected = (
-        f"EPSG:{hemisphere_code}{utm_zone:02d}"  # Complete EPSG code for UTM zone
-    )
+    hemisphere_code = 326 if drone_latitude >= 0 else 327
+    crs_projected = f"EPSG:{hemisphere_code}{utm_zone:02d}"
 
-    # Initialize pyproj transformers for coordinate conversions
-    transformer = Transformer.from_crs("EPSG:4326", crs_projected, always_xy=True)
-    inv_transformer = Transformer.from_crs(crs_projected, "EPSG:4326", always_xy=True)
+    transformer, inv_transformer = _projection_transformers(crs_projected)
 
-    # Convert the drone's initial GPS coordinates to UTM
     drone_x, drone_y = transformer.transform(drone_longitude, drone_latitude)
-
-    # Target pixel offset from image center
-    target_pixel_x, target_pixel_y = target_pixel_coordinates
-    image_center_x, image_center_y = pixel_resolution[0] / 2, pixel_resolution[1] / 2
-    delta_x, delta_y = target_pixel_x - image_center_x, target_pixel_y - image_center_y
-
-    # Adjust for drone's yaw (orientation)
-    drone_yaw_rad = math.radians(drone_yaw)
-    corrected_delta_x = delta_x * math.cos(drone_yaw_rad) - delta_y * math.sin(
-        drone_yaw_rad
+    target_longitude, target_latitude = inv_transformer.transform(
+        drone_x + east, drone_y + north
     )
-    corrected_delta_y = delta_x * math.sin(drone_yaw_rad) + delta_y * math.cos(
-        drone_yaw_rad
-    )
-
-    # Convert pixel offsets to meters
-    x_meters = corrected_delta_x * image_width / pixel_resolution[0]
-    y_meters = corrected_delta_y * image_height / pixel_resolution[1]
-
-    # Calculate the target position in UTM coordinates by adding the offsets
-    target_x = drone_x + x_meters
-    target_y = drone_y + y_meters
-
-    # Convert the final target position back to GPS coordinates
-    target_longitude, target_latitude = inv_transformer.transform(target_x, target_y)
 
     return target_latitude, target_longitude
 
@@ -173,39 +211,22 @@ def georeference_enu(
     focal_length,
 ):
     """Georeference a pixel using a local East-North-Up frame centered on the platform."""
-    # Adjust altitude if necessary
-    altitude = drone_altitude - altitude_offset
+    east, north = _pixel_to_east_north(
+        target_pixel_coordinates,
+        drone_altitude,
+        altitude_offset,
+        drone_yaw,
+        sensor_w,
+        sensor_h,
+        pix_width,
+        pix_height,
+        focal_length,
+    )
 
-    # Field of view
-    horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
-    vertical_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))
-
-    # Ground footprint dimensions at altitude
-    image_width = 2 * altitude * math.tan(math.radians(horizontal_fov / 2))
-    image_height = 2 * altitude * math.tan(math.radians(vertical_fov / 2))
-
-    # Image center and pixel offset
-    image_center_x, image_center_y = pix_width / 2, pix_height / 2
-    target_pixel_x, target_pixel_y = target_pixel_coordinates
-
-    delta_x = target_pixel_x - image_center_x
-    delta_y = target_pixel_y - image_center_y
-
-    # Rotate according to yaw (convert to radians)
-    yaw_rad = math.radians(drone_yaw)
-    corrected_dx = delta_x * math.cos(yaw_rad) - delta_y * math.sin(yaw_rad)
-    corrected_dy = delta_x * math.sin(yaw_rad) + delta_y * math.cos(yaw_rad)
-
-    # Convert from pixel offset to real-world distance in meters
-    east_offset = corrected_dx * image_width / pix_width
-    north_offset = corrected_dy * image_height / pix_height
-    up_offset = 0  # Nadir view, so no change in vertical
-
-    # Convert local ENU offset back to GPS
     target_lat, target_lon, _ = pm.enu2geodetic(
-        east_offset,
-        north_offset,
-        up_offset,
+        east,
+        north,
+        0,  # nadir view, no vertical offset
         drone_latitude,
         drone_longitude,
         drone_altitude,
@@ -228,50 +249,26 @@ def georeference_aeqd(
     focal_length,
 ):
     """Georeference a pixel using an azimuthal equidistant projection centered on the platform."""
-    # Constants for image resolution and camera field of view
-    pixel_resolution = (pix_width, pix_height)  # Image pixel dimensions
-    horizontal_fov = 2 * math.degrees(math.atan(sensor_w / (2 * focal_length)))
-    vertical_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))
-
-    altitude = drone_altitude - altitude_offset
-
-    # Calculate the real-world dimensions of the image at the target altitude
-    image_width = 2 * altitude * math.tan(math.radians(horizontal_fov / 2))
-    image_height = 2 * altitude * math.tan(math.radians(vertical_fov / 2))
-
-    # --- Custom Projection Block ---
-    # Define an Azimuthal Equidistant projection centered on the drone coordinates.
-    proj_string = f"+proj=aeqd +lat_0={drone_latitude} +lon_0={drone_longitude} +ellps=WGS84 +units=m +no_defs"
-    transformer = Transformer.from_crs("EPSG:4326", proj_string, always_xy=True)
-    inv_transformer = Transformer.from_crs(proj_string, "EPSG:4326", always_xy=True)
-    # Convert the drone's GPS coordinates to the custom projection coordinates.
-    drone_x, drone_y = transformer.transform(drone_longitude, drone_latitude)
-    # --- End Custom Projection Block ---
-
-    # Target pixel offset from image center
-    target_pixel_x, target_pixel_y = target_pixel_coordinates
-    image_center_x, image_center_y = pixel_resolution[0] / 2, pixel_resolution[1] / 2
-    delta_x, delta_y = target_pixel_x - image_center_x, target_pixel_y - image_center_y
-
-    # Adjust for drone's yaw (orientation)
-    drone_yaw_rad = math.radians(drone_yaw)
-    corrected_delta_x = delta_x * math.cos(drone_yaw_rad) - delta_y * math.sin(
-        drone_yaw_rad
-    )
-    corrected_delta_y = delta_x * math.sin(drone_yaw_rad) + delta_y * math.cos(
-        drone_yaw_rad
+    east, north = _pixel_to_east_north(
+        target_pixel_coordinates,
+        drone_altitude,
+        altitude_offset,
+        drone_yaw,
+        sensor_w,
+        sensor_h,
+        pix_width,
+        pix_height,
+        focal_length,
     )
 
-    # Convert pixel offsets to meters
-    x_meters = corrected_delta_x * image_width / pixel_resolution[0]
-    y_meters = corrected_delta_y * image_height / pixel_resolution[1]
-
-    # Calculate the target position in custom projection coordinates by adding the offsets
-    target_x = drone_x + x_meters
-    target_y = drone_y + y_meters
-
-    # Convert the final target position back to GPS coordinates
-    target_longitude, target_latitude = inv_transformer.transform(target_x, target_y)
+    # Azimuthal equidistant projection centered on the drone: the drone sits
+    # at (0, 0), so the target is simply the ENU offset in projected space.
+    proj_string = (
+        f"+proj=aeqd +lat_0={drone_latitude} +lon_0={drone_longitude} "
+        "+ellps=WGS84 +units=m +no_defs"
+    )
+    _, inv_transformer = _projection_transformers(proj_string)
+    target_longitude, target_latitude = inv_transformer.transform(east, north)
 
     return target_latitude, target_longitude
 
@@ -290,59 +287,22 @@ def georeference_manual(
     focal_length,
 ):
     """Georeference a pixel using a flat-earth (meters-per-degree) approximation."""
-    # Constants
-    pixel_resolution = (pix_width, pix_height)
-
-    # Camera field of view = 2*arctan(sensor_size/(2*focal_length))
-    horizontal_fov = 2 * math.degrees(
-        math.atan(sensor_w / (2 * focal_length))
-    )  # degrees
-    vertical_fov = 2 * math.degrees(math.atan(sensor_h / (2 * focal_length)))  # degrees
-
-    altitude = drone_altitude - altitude_offset
-
-    # Image real-world dimensions
-    image_width = 2 * altitude * math.tan(math.radians(horizontal_fov / 2))
-    image_height = 2 * altitude * math.tan(math.radians(vertical_fov / 2))
-
-    # Drone orientation
-    drone_yaw_rad = math.radians(drone_yaw)
-
-    # Target pixel coordinates
-    target_pixel_x, target_pixel_y = target_pixel_coordinates
-
-    # Image center coordinates
-    image_center_x = pixel_resolution[0] / 2
-    image_center_y = pixel_resolution[1] / 2
-
-    # Calculate distance from image center to target pixel
-    delta_x = target_pixel_x - image_center_x
-    delta_y = target_pixel_y - image_center_y
-
-    # Calculate distance from image center to target pixel after correction
-    corrected_delta_x = delta_x * math.cos(drone_yaw_rad) - delta_y * math.sin(
-        drone_yaw_rad
-    )
-    corrected_delta_y = delta_x * math.sin(drone_yaw_rad) + delta_y * math.cos(
-        drone_yaw_rad
+    east, north = _pixel_to_east_north(
+        target_pixel_coordinates,
+        drone_altitude,
+        altitude_offset,
+        drone_yaw,
+        sensor_w,
+        sensor_h,
+        pix_width,
+        pix_height,
+        focal_length,
     )
 
-    # Calculate new target pixel coordinates after adjustment
-    corrected_target_pixel_x = image_center_x + corrected_delta_x
-    corrected_target_pixel_y = image_center_y + corrected_delta_y
-
-    # Calculate target coordinates in meters (assuming linear relationship)
-    x_meters = (
-        (corrected_target_pixel_x - image_center_x) * image_width / pixel_resolution[0]
-    )
-    y_meters = (
-        (corrected_target_pixel_y - image_center_y) * image_height / pixel_resolution[1]
-    )
-
-    # Convert drone-centric coordinates to global coordinates
-    target_latitude = drone_latitude + (y_meters / 111319.944)
-    target_longitude = drone_longitude + (
-        x_meters / (111319.944 * math.cos(math.radians(drone_latitude)))
+    meters_per_degree = 111319.944
+    target_latitude = drone_latitude + north / meters_per_degree
+    target_longitude = drone_longitude + east / (
+        meters_per_degree * math.cos(math.radians(drone_latitude))
     )
 
     return target_latitude, target_longitude

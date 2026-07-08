@@ -4,10 +4,46 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "image-processing"
-version = "0.1.0"
+version = "0.2.0"
 description = "Internal package used by UHDT for image processing"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+    "h5py>=3.10",
+    "matplotlib>=3.7",
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "paramiko>=3.0",
+    "pillow>=10.0",
+    "PyExifTool>=0.5",
+    "pymap3d>=3.0",
+    "pyproj>=3.6",
+    "PyYAML>=6.0",
+    "sahi>=0.11",
+    "shapely>=2.0",
+    "tqdm>=4.65",
+]
+
+# The GStreamer camera backends additionally need PyGObject (`gi`) and the
+# system GStreamer libraries; install those through the OS package manager
+# (they are not reliably pip-installable). PyTorch should be installed per
+# the instructions in the README (hardware-specific builds).
+
+[project.optional-dependencies]
+# Model inference/training stacks (heavy; pulls in torch via ultralytics).
+models = [
+    "ultralytics>=8.0",
+]
+docs = [
+    "sphinx",
+    "sphinx-autoapi",
+    "sphinx-code-tabs",
+    "sphinx-rtd-theme",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -21,3 +57,6 @@ target-version = "py310"
 # E: pycodestyle errors, F: pyflakes, I: import sorting
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

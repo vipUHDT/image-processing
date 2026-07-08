@@ -19,12 +19,16 @@ LOGGER = logging.getLogger(__name__)
 
 class DetectionManager:
     """
-    Run object detection on queued images in worker threads.
+    Run object detection on queued images in persistent worker threads.
 
-    Images are queued with their platform state, processed by ``Detector``
-    workers, georeferenced (when an engine and camera metadata are
-    configured), de-duplicated by GPS proximity, and collected into
-    ``detections`` and ``results`` via ``update``.
+    Each worker loads the detection model once at startup and then processes
+    images from the queue for the manager's lifetime. Detections are
+    georeferenced (when an engine and camera metadata are configured),
+    de-duplicated by GPS proximity, and appended to ``detections`` and
+    ``results`` as soon as they are accepted.
+
+    Workers are started lazily by ``processQueuedImages`` (or explicitly with
+    ``start``) and stopped with ``stop``.
 
     Parameters
     ----------
@@ -44,103 +48,124 @@ class DetectionManager:
     ):
         self.detection_model_config = detection_model_config
         self.image_queue = Queue()
-        self.detections_queue = Queue()
-        self.results_queue = Queue()
         self.gps_callback = None
 
-        self.detections = []
-        self.results = []
+        self.detections: list[Detection] = []
+        self.results: list[DetectionModelResult] = []
+        self._lock = threading.Lock()
 
-        self.active_threads: list[threading.Thread] = []
         self.workers = 5
-        self.max_concurrent_queue_process = 10
+        self._worker_threads: list[threading.Thread] = []
+        self._stop_event = threading.Event()
 
         self.duplicate_threshold = 2  # meters
         self.camera: CameraMetadata | None = camera_metadata
         self.georeference_engine = georeference_engine
-        self.terminated = False
 
     def setGPSCallback(self, callback):
         """Register a callable invoked with each new detection's GPS coordinates."""
         self.gps_callback = callback
 
-    def update(self):
-        """Drain one item each from the detection and result queues into their lists."""
-        self.updateDetections()
-        self.updateResults()
+    # ---------- worker lifecycle ----------
+    def start(self):
+        """Start the worker threads if they are not already running."""
+        if self._worker_threads:
+            return
+        self._stop_event.clear()
+        for i in range(self.workers):
+            t = threading.Thread(
+                target=self._workerLoop,
+                daemon=True,
+                name=f"DetectionManager-{i}",
+            )
+            t.start()
+            self._worker_threads.append(t)
 
-    def updateResults(self):
-        """Move one pending model result from the queue to ``results``, if any."""
+    def stop(self, wait: bool = True):
+        """Signal the workers to exit and optionally wait for them."""
+        self._stop_event.set()
+        if wait:
+            for t in self._worker_threads:
+                t.join(timeout=5)
+        self._worker_threads = []
+
+    def _workerLoop(self):
+        """Load the model once, then process queued images until stopped."""
+        detector = Detector(self.detection_model_config)
         try:
-            result = self.results_queue.get_nowait()
-        except Empty:
-            pass
-        else:
-            self.results.append(result)
+            detector.loadModel()
+        except Exception:
+            LOGGER.exception("Detection worker failed to load model; exiting")
+            return
+        while not self._stop_event.is_set():
+            try:
+                queued_image = self.image_queue.get(timeout=0.2)
+            except Empty:
+                continue
+            try:
+                self.ODCL(detector, queued_image.image, queued_image.platform_state)
+            except Exception:
+                LOGGER.exception("Detection worker failed to process image")
+            finally:
+                self.image_queue.task_done()
 
-    def updateDetections(self):
-        """Move one pending detection from the queue to ``detections``, if any."""
-        try:
-            detection = self.detections_queue.get_nowait()
-        except Empty:
-            pass
-        else:
-            LOGGER.debug("New detection at %s", detection.gps_coords)
-            self.detections.append(detection)
-
+    # ---------- pipeline ----------
     def queueImage(self, image: QueuedImage):
         """Add an image (with platform state) to the processing queue."""
         self.image_queue.put(image)
 
     def processQueuedImages(self):
-        """Start worker threads for queued images, up to the ``workers`` limit."""
-        self.pruneThreads()
-        if self.image_queue.qsize() > 0:
-            for _ in range(self.workers):
-                if len(self.active_threads) < self.workers:
-                    try:
-                        queued_image = self.image_queue.get_nowait()
-                    except Empty:
-                        break
-                    if queued_image:
-                        t = threading.Thread(
-                            target=self.processQueuedImage,
-                            args=(queued_image,),
-                            daemon=True,
-                            name="DetectionManager",
-                        )
-                        t.start()
-                        self.active_threads.append(t)
+        """Ensure the worker threads are running (kept for backward compatibility)."""
+        self.start()
 
-    def pruneThreads(self):
-        """Drop finished worker threads from the active list."""
-        self.active_threads = [t for t in self.active_threads if t.is_alive()]
+    def update(self):
+        """No-op kept for backward compatibility.
 
-    def processQueuedImage(self, queued_image: QueuedImage):
-        """Run the detection pipeline on a single queued image."""
-        self.ODCL(queued_image.image, queued_image.platform_state)
+        Detections and results are now appended to ``detections`` and
+        ``results`` directly by the workers as they are produced.
+        """
+
+    def ODCL(self, detector: Detector, image, platform_state):
+        """Run object detection, classification, and localization on one image."""
+        results = detector.run(image)
+        if isinstance(results, PredictionResult):
+            detection_model_result, detections = detector.parseResults(results)
+            self.addResult(detection_model_result)
+            self.addDetections(detections, platform_state)
 
     def addResult(self, result: DetectionModelResult):
-        """Queue a model result for collection by ``update``."""
-        self.results_queue.put(result)
+        """Record a model result."""
+        with self._lock:
+            self.results.append(result)
 
     def addDetection(self, detection: Detection, platform_state: PlatformState):
-        """Georeference a detection and queue it unless it duplicates an existing one."""
+        """Georeference a detection and record it unless it duplicates an existing one."""
         if isinstance(self.georeference_engine, Georeference_Engine) and isinstance(self.camera, CameraMetadata):
             detection.gps_coords = self.georeference(
                 detection.pixel_coords,
                 platform_state,
                 self.camera,
-                self.georeference_engine.altitude_offset,
             )
 
-        if not self.checkForDuplicates(detection):
-            if self.gps_callback:
-                self.gps_callback(detection.gps_coords)
-            self.detections_queue.put(detection)
+        with self._lock:
+            if self._isDuplicate(detection):
+                return
+            LOGGER.debug("New detection at %s", detection.gps_coords)
+            self.detections.append(detection)
+        if self.gps_callback:
+            self.gps_callback(detection.gps_coords)
 
-    def checkForDuplicates(self, detection: Detection) -> bool:
-        """Return True if a known detection lies within ``duplicate_threshold`` meters."""
+    def addDetections(self, detections: list[Detection], platform_state: PlatformState):
+        """Add multiple detections via ``addDetection``."""
+        for detection in detections:
+            self.addDetection(detection, platform_state)
+
+    def _isDuplicate(self, detection: Detection) -> bool:
+        """Return True if a known detection lies within ``duplicate_threshold`` meters.
+
+        Must be called with ``self._lock`` held so the check and the caller's
+        append are atomic with respect to other workers.
+        """
         if not detection.gps_coords:
             return False
         for existing_detection in self.detections:
@@ -156,46 +181,42 @@ class DetectionManager:
                 return True
         return False
 
+    def checkForDuplicates(self, detection: Detection) -> bool:
+        """Return True if a known detection lies within ``duplicate_threshold`` meters."""
+        with self._lock:
+            return self._isDuplicate(detection)
+
+    # ---------- georeferencing ----------
     def setGeoreferenceEngine(self, georeference_backend, altitude_offset=0):
         """Create the georeference engine for the given backend name."""
         self.georeference_engine = Georeference_Engine(georeference_backend, altitude_offset)
 
-    def georeference(self, target_pixel_coordinates, platform_state, camera_metadata, altitude_offset):
+    def georeference(self, target_pixel_coordinates, platform_state, camera_metadata):
         """Convert pixel coordinates to GPS via the configured engine, or None."""
         if self.georeference_engine:
             return self.georeference_engine.georeference(
-                target_pixel_coordinates, platform_state, camera_metadata, altitude_offset
+                target_pixel_coordinates, platform_state, camera_metadata
             )
 
-    def addDetections(self, detections: list[Detection], platform_state: PlatformState):
-        """Add multiple detections via ``addDetection``."""
-        for detection in detections:
-            self.addDetection(detection, platform_state)
-
-    def ODCL(self, image, platform_state):
-        """Run object detection, classification, and localization on one image."""
-        detector = Detector(self.detection_model_config)
-        detector.loadModel()
-        results = detector.run(image)
-        if isinstance(results, PredictionResult):
-            detection_model_result, detections = detector.parseResults(results)
-            self.addResult(detection_model_result)
-            self.addDetections(detections, platform_state)
-
+    # ---------- accessors ----------
     def getAllDetections(self):
         """Return all collected detections."""
-        return self.detections
+        with self._lock:
+            return list(self.detections)
 
     def filterByClassification(self, classification: str):
         """Return collected detections with the given classification label."""
-        return [d for d in self.detections if d.classification == classification]
+        with self._lock:
+            return [d for d in self.detections if d.classification == classification]
 
     def filterByConfidence(self, threshold: float):
         """Return collected detections with confidence at or above ``threshold``."""
         if not 0.0 <= threshold <= 1.0:
             raise ValueError("Threshold must be between 0.0 and 1.0")
-        return [d for d in self.detections if d.get_confidence() >= threshold]
+        with self._lock:
+            return [d for d in self.detections if d.confidence >= threshold]
 
     def clearDetections(self):
         """Remove all collected detections."""
-        self.detections.clear()
+        with self._lock:
+            self.detections.clear()

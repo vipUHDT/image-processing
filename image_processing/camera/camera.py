@@ -77,13 +77,16 @@ class Camera(ABC):
 
     def setBackend(self, backend: str) -> None:
         """Select a camera backend by name. Raises ``ValueError`` for unknown names."""
-        backends = ["rb5"]
-        if backend not in backends:
-            error_msg = f"{backend} is not a valid backend. Backend must be {backends}"
+        from image_processing.camera.backends import listBackends
+        instance = self.getBackend(backend)
+        if instance is None:
+            error_msg = (
+                f"{backend} is not a valid backend. Backend must be one of {listBackends()}"
+            )
             self.backend = None
             LOGGER.error(error_msg)
             raise ValueError(error_msg)
-        self.backend = self.getBackend(backend)
+        self.backend = instance
 
     def getBackend(self, backend: str):
         """Return the backend instance registered under ``backend``, or None."""

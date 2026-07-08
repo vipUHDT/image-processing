@@ -14,7 +14,6 @@ ground* it is.
     interchangeable projection strategies that convert a pixel offset (corrected for the
     camera FOV, altitude, and drone yaw) into a latitude/longitude.
   - `haversine(...)` — great-circle distance in meters, used for duplicate detection.
-- **`Classification.py`** — placeholder for the classification stage (currently empty).
 - **`__init__.py`** — re-exports the above and defines a small `ODCL` pipeline scaffold.
 - **`detection/`** — the object-detection stage, built on
   [SAHI](https://github.com/obss/sahi):
@@ -25,9 +24,10 @@ ground* it is.
     output into `Detection` objects (class, confidence, bounding box, center pixel,
     cropped image), aggregated into a `DetectionModelResult`.
   - `DetectionManager.py` — orchestrates the full pipeline. It accepts `QueuedImage`s,
-    runs detection across a thread pool, georeferences each detection, drops GPS
-    duplicates (via `haversine` + a distance threshold), optionally fires a `gps_callback`,
-    and exposes filtering by classification/confidence.
+    runs detection on persistent worker threads (each loads the model once at startup),
+    georeferences each detection, drops GPS duplicates (via `haversine` + a distance
+    threshold), optionally fires a `gps_callback`, and exposes filtering by
+    classification/confidence.
 
 ## How it connects to the rest of the package
 
@@ -48,8 +48,8 @@ ground* it is.
 manager = DetectionManager(detection_model_config, camera_metadata)
 manager.setGeoreferenceEngine("enu", altitude_offset=0)
 
+manager.start()                 # spin up worker threads (model loads once per worker)
 manager.queueImage(QueuedImage(image=frame, platform_state=state))
-manager.processQueuedImages()   # detect + georeference on worker threads
-manager.update()                # drain detection/result queues
-detections = manager.getAllDetections()
+detections = manager.getAllDetections()   # populated as workers finish
+manager.stop()
 ```

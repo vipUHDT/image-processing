@@ -1,6 +1,7 @@
 """Object detection primitives built on SAHI (sliced inference)."""
 
 import os
+from dataclasses import dataclass, field
 from typing import Optional
 
 import cv2
@@ -9,20 +10,22 @@ from sahi.predict import get_prediction, get_sliced_prediction
 from sahi.prediction import ObjectPrediction, PredictionResult
 
 from image_processing.results import ModelResult
+from image_processing.tools.hash import hashFile
 
 from .SahiConfig import ModelConfig, SahiConfig, SahiDetectionModel
 
 
+@dataclass
 class Detection:
     """
     A single detected object with its location and provenance.
 
-    Parameters
+    Attributes
     ----------
     classification : str
         Predicted class label.
     confidence : float
-        Prediction confidence in ``[0, 1]``.
+        Prediction confidence in ``[0, 1]``; validated at construction.
     pixel_coords : tuple[int, int]
         Center of the detection's bounding box in image coordinates.
     image : cv2.typing.MatLike
@@ -35,24 +38,21 @@ class Detection:
         Capture timestamp.
     """
 
-    def __init__(
-        self,
-        classification: str,
-        confidence: float,
-        pixel_coords: tuple[int, int],
-        image: cv2.typing.MatLike,
-        cropped_image: cv2.typing.MatLike | None = None,
-        gps_coords: tuple[float, float] | None = None,
-        timestamp: str | None = None,
-    ):
-        self.classification = classification
-        self.gps_coords = gps_coords
-        self.timestamp = timestamp
-        self.image = image
-        self.pixel_coords = pixel_coords
-        self.confidence = confidence
-        self.cropped_image = cropped_image
+    classification: str
+    confidence: float
+    pixel_coords: tuple[int, int]
+    image: cv2.typing.MatLike = field(repr=False)
+    cropped_image: cv2.typing.MatLike | None = field(default=None, repr=False)
+    gps_coords: tuple[float, float] | None = None
+    timestamp: str | None = None
 
+    def __post_init__(self):
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(
+                f"Confidence must be between 0.0 and 1.0, got {self.confidence}"
+            )
+
+    # Legacy accessors kept for callers written against the pre-dataclass API.
     def get_gps_coords(self):
         return self.gps_coords
 
@@ -63,8 +63,6 @@ class Detection:
         return self.timestamp
 
     def get_confidence(self):
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError("Confidence must be between 0.0 and 1.0")
         return self.confidence
 
     def get_image(self):
@@ -122,6 +120,9 @@ class Detector:
                     confidence_threshold = self.model_config.confidence_threshold,
                     device = self.model_config.device
                 )
+                self.model_path = self.model_config.model_path
+                if self.model_path and os.path.isfile(self.model_path):
+                    self.model_hash = hashFile(self.model_path)
 
     def initializeModel(self):
         """Warm up the model with a dummy inference to trigger lazy initialization."""
@@ -309,43 +310,26 @@ class Detector:
         img_height: int,
     ) -> tuple[int, int, int, int]:
         """
-        Expand a bounding box by a given padding while ensuring it stays
-        within image boundaries.
-
-        The method iteratively applies padding around the bounding box until
-        either the requested expansion is applied or further padding would
-        exceed the image dimensions. If padding cannot be fully applied,
-        it is reduced step by step until a valid box is obtained.
+        Expand a bounding box by a given padding on each side, clamped to
+        the image boundaries.
 
         Args:
-            bb (tuple[float, float, float, float]): The original bounding box
-                in `[x_min, y_min, x_max, y_max]` format.
+            bounding_box (tuple[int, int, int, int]): The original bounding
+                box in `[x_min, y_min, x_max, y_max]` format.
             padding (int): The number of pixels to expand the bounding box
                 in all directions.
             img_width (int): Width of the image (upper bound for `x_max`).
             img_height (int): Height of the image (upper bound for `y_max`).
 
         Returns:
-            tuple[float, float, float, float]: The adjusted bounding box in
+            tuple[int, int, int, int]: The adjusted bounding box in
             `[x_min, y_min, x_max, y_max]` format, guaranteed to fit within
             the image dimensions.
         """
         x_min, y_min, x_max, y_max = bounding_box
-        while True:
-            new_x_min = max(x_min - padding, 0)
-            new_y_min = max(y_min - padding, 0)
-            new_x_max = min(x_max + padding, img_width)
-            new_y_max = min(y_max + padding, img_height)
-
-            if (
-                new_x_min == x_min
-                and new_y_min == y_min
-                and new_x_max == x_max
-                and new_y_max == y_max
-            ):
-                break
-
-            x_min, y_min, x_max, y_max = new_x_min, new_y_min, new_x_max, new_y_max
-            padding -= 1
-
-        return (int(new_x_min), int(new_y_min), int(new_x_max), int(new_y_max))
+        return (
+            int(max(x_min - padding, 0)),
+            int(max(y_min - padding, 0)),
+            int(min(x_max + padding, img_width)),
+            int(min(y_max + padding, img_height)),
+        )

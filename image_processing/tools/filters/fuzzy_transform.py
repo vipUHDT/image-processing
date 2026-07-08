@@ -1,7 +1,7 @@
 """Discrete fuzzy transform (F-transform) and block-wise image fusion.
 
 Implements the direct and inverse 2-D fuzzy transform with respect to a pair
-of basis-function matrices (see ``Basis_Function.triangular_basis``), plus a
+of basis-function matrices (see ``basis_function.triangular_basis``), plus a
 variance-weighted fusion of two aligned single-channel images.
 """
 

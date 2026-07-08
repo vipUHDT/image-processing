@@ -209,8 +209,8 @@ def export_map(map_file_path, boundary_coords, drone_waypoints, angle, rect_cent
     waypoint's camera footprint on a folium map saved to ``map_file_path``,
     and writes the waypoints to ``mission_planner_file``.
     """
-    from offline_folium import offline  # noqa: F401 - enables folium offline assets
     import folium
+    from offline_folium import offline  # noqa: F401 - enables folium offline assets
     center_lat = sum(pt[0] for pt in boundary_coords) / len(boundary_coords)
     center_lon = sum(pt[1] for pt in boundary_coords) / len(boundary_coords)
 

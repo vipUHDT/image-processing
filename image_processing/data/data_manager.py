@@ -34,7 +34,11 @@ class DataManager:
     Store camera frames and key/value metadata in a single HDF5 file.
 
     Call ``initialize`` to open the file and create the datasets before
-    using any other method, and ``close`` when finished.
+    using any other method, and ``close`` when finished. Alternatively use
+    the instance as a context manager, which does both::
+
+        with DataManager("flight.hdf5", datasets) as dm:
+            dm.append_rgb(frame)
 
     Parameters
     ----------
@@ -56,7 +60,30 @@ class DataManager:
             ds.name: idx for idx, ds in enumerate(self.image_datasets)
         }
 
+        self.cdata = None
+        self.cidata = None
+        self.meta_keys = None
+        self.meta_vals = None
+        self.det_keys = None
+        self.det_vals = None
+
+    def __enter__(self):
+        self.initialize()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     # ---------- helpers ----------
+    def _require_open(self):
+        """Raise if ``initialize`` has not been called (or the file was closed)."""
+        if self.file is None:
+            raise RuntimeError(
+                "DataManager is not initialized. Call initialize() first or use "
+                "it as a context manager."
+            )
+
     @staticmethod
     def _read_str_dset(dset) -> np.ndarray:
         """Read a 1-D string dataset as np.ndarray[str]; fallback if needed."""
@@ -110,7 +137,8 @@ class DataManager:
         if self.meta_keys.shape[0] != self.meta_vals.shape[0]: # type: ignore
             raise RuntimeError("metadata_keys and metadata_values length mismatch")
         try:
-            _ = self.meta_keys.asstr(); _ = self.meta_vals.asstr() # type: ignore
+            _ = self.meta_keys.asstr()  # type: ignore
+            _ = self.meta_vals.asstr()  # type: ignore
         except TypeError:
             raise RuntimeError(
                 "metadata_* are not string-typed datasets. Delete/migrate to UTF-8 vlen strings."
@@ -134,7 +162,8 @@ class DataManager:
         if self.det_keys.shape[0] != self.det_vals.shape[0]: # type: ignore
             raise RuntimeError("detections_keys and detections_values length mismatch")
         try:
-            _ = self.det_keys.asstr(); _ = self.det_vals.asstr() # type: ignore
+            _ = self.det_keys.asstr()  # type: ignore
+            _ = self.det_vals.asstr()  # type: ignore
         except TypeError:
             raise RuntimeError(
                 "detections_* are not string-typed datasets. Delete/migrate to UTF-8 vlen strings."
@@ -145,17 +174,21 @@ class DataManager:
     # ---------- top-level metadata ops ----------
     def add_metadata(self, key: str, value: str):
         """Set a top-level metadata key, overwriting any existing value."""
+        self._require_open()
         keys = self._read_str_dset(self.meta_keys)
         where = np.where(keys == key)[0]
         if where.size:
             self.meta_vals[where[0]] = value  # type: ignore
         else:
             n = self.meta_keys.shape[0]  # type: ignore
-            self.meta_keys.resize((n + 1,)); self.meta_vals.resize((n + 1,))  # type: ignore
-            self.meta_keys[n] = key; self.meta_vals[n] = value  # type: ignore
+            self.meta_keys.resize((n + 1,))  # type: ignore
+            self.meta_vals.resize((n + 1,))  # type: ignore
+            self.meta_keys[n] = key  # type: ignore
+            self.meta_vals[n] = value  # type: ignore
 
     def get_metadata_value(self, key: str) -> str:
         """Return the value stored for a metadata key. Raises ``KeyError`` if absent."""
+        self._require_open()
         keys = self._read_str_dset(self.meta_keys)
         vals = self._read_str_dset(self.meta_vals)
         where = np.where(keys == key)[0]
@@ -163,27 +196,31 @@ class DataManager:
             raise KeyError(f"Key '{key}' not found. Existing keys: {list(keys)}")
         return vals[where[0]]  # type: ignore
 
-    def list_metadata(self):
-        """Print all metadata key/value pairs."""
+    def list_metadata(self) -> dict[str, str]:
+        """Return all metadata key/value pairs as a dict."""
+        self._require_open()
         keys = self._read_str_dset(self.meta_keys)
         vals = self._read_str_dset(self.meta_vals)
-        for k, v in zip(keys, vals):
-            print(f"{k} = {v}")
+        return dict(zip(keys, vals))
 
     # ---------- detections ops (datasets, like metadata) ----------
     def add_detection(self, key: str, value: str):
         """Set a detection key, overwriting any existing value."""
+        self._require_open()
         keys = self._read_str_dset(self.det_keys)
         where = np.where(keys == key)[0]
         if where.size:
             self.det_vals[where[0]] = value  # type: ignore
         else:
             n = self.det_keys.shape[0]  # type: ignore
-            self.det_keys.resize((n + 1,)); self.det_vals.resize((n + 1,))  # type: ignore
-            self.det_keys[n] = key; self.det_vals[n] = value  # type: ignore
+            self.det_keys.resize((n + 1,))  # type: ignore
+            self.det_vals.resize((n + 1,))  # type: ignore
+            self.det_keys[n] = key  # type: ignore
+            self.det_vals[n] = value  # type: ignore
 
     def get_detection_value(self, key: str) -> str:
         """Return the value stored for a detection key. Raises ``KeyError`` if absent."""
+        self._require_open()
         keys = self._read_str_dset(self.det_keys)
         vals = self._read_str_dset(self.det_vals)
         where = np.where(keys == key)[0]
@@ -191,12 +228,12 @@ class DataManager:
             raise KeyError(f"[detections] Key '{key}' not found. Existing keys: {list(keys)}")
         return vals[where[0]]  # type: ignore
 
-    def list_detections(self):
-        """Print all detection key/value pairs."""
+    def list_detections(self) -> dict[str, str]:
+        """Return all detection key/value pairs as a dict."""
+        self._require_open()
         keys = self._read_str_dset(self.det_keys)
         vals = self._read_str_dset(self.det_vals)
-        for k, v in zip(keys, vals):
-            print(f"[detections] {k} = {v}")
+        return dict(zip(keys, vals))
 
     # ---------- append frames ----------
     def append_rgb(self, frame: np.ndarray):
@@ -214,6 +251,7 @@ class DataManager:
         Raises ``KeyError`` if the dataset does not exist and ``ValueError``
         if the frame shape does not match the dataset's frame shape.
         """
+        self._require_open()
         if dataset_name not in self.cidata:
             raise KeyError(
                 f"Image dataset '{dataset_name}' does not exist. "

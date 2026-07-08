@@ -252,20 +252,28 @@ class Hadron640R:
         self.backendManager.cameras["BOSON640"].downloadRemoteVideo(ir_save_path)
 
 
-class Boson640(Camera):
-    """FLIR Boson 640 IR camera streamed from the remote host."""
+class HadronStreamCamera(Camera):
+    """
+    One Hadron 640R camera streamed from the remote host via GStreamer.
 
-    SOURCE_CHAIN = (
-        "v4l2src device=/dev/v4l/by-id/usb-FLIR_Boson_439955-video-index0 io-mode=2 ! "
-        "video/x-raw,format=NV12,width=640,height=512,framerate=30/1"
-    )
-    RTSP_MOUNT = "ir"
+    Subclasses define the device-side source chain, encoder settings, RTSP
+    mount point, and recording filename suffix as class attributes.
+    """
+
+    NAME: str
+    SOURCE_CHAIN: str
+    RTSP_MOUNT: str
+    VIDEO_SUFFIX: str
+    BITRATE_KBPS: int
+    KEY_INT_FRAMES: int
 
     def __init__(self, encoder: str = "hardware", transport: str = "udp"):
-        super().__init__("BOSON640")
+        super().__init__(self.NAME)
         self.backend = GStreamerCamera(self.name)
-        self.remote_video_path = f"flights/{timestamp()}-IR.mp4"
-        self.encoder_chain = h264EncoderChain(encoder, bitrate_kbps=2500, key_int_frames=60)
+        self.remote_video_path = f"flights/{timestamp()}-{self.VIDEO_SUFFIX}.mp4"
+        self.encoder_chain = h264EncoderChain(
+            encoder, bitrate_kbps=self.BITRATE_KBPS, key_int_frames=self.KEY_INT_FRAMES
+        )
         self.transport = transport
         self.RX_TEMPLATE = Template(rxPipeline(transport, rtsp_mount=self.RTSP_MOUNT))
         self.TX_TEMPLATE = Template(
@@ -307,57 +315,30 @@ class Boson640(Camera):
         self.backend.downloadRemoteVideo(self.remote_video_path, save_path)
 
 
-class OV64B(Camera):
+class Boson640(HadronStreamCamera):
+    """FLIR Boson 640 IR camera streamed from the remote host."""
+
+    NAME = "BOSON640"
+    SOURCE_CHAIN = (
+        "v4l2src device=/dev/v4l/by-id/usb-FLIR_Boson_439955-video-index0 io-mode=2 ! "
+        "video/x-raw,format=NV12,width=640,height=512,framerate=30/1"
+    )
+    RTSP_MOUNT = "ir"
+    VIDEO_SUFFIX = "IR"
+    BITRATE_KBPS = 2500
+    KEY_INT_FRAMES = 60
+
+
+class OV64B(HadronStreamCamera):
     """OmniVision OV64B EO camera streamed from the remote host."""
 
+    NAME = "OV64B"
     SOURCE_CHAIN = (
         "qtiqmmfsrc name=qmmf camera=0 scene=action af-mode=continuous "
         "white-balance-mode=auto iso-mode=deblur noise-reduction=fast sharpness=1 ! "
         "video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1 ! queue"
     )
     RTSP_MOUNT = "eo"
-
-    def __init__(self, encoder: str = "hardware", transport: str = "udp"):
-        super().__init__("OV64B")
-        self.backend = GStreamerCamera(self.name)
-        self.remote_video_path = f"flights/{timestamp()}-EO.mp4"
-        self.encoder_chain = h264EncoderChain(encoder, bitrate_kbps=6000, key_int_frames=30)
-        self.transport = transport
-        self.RX_TEMPLATE = Template(rxPipeline(transport, rtsp_mount=self.RTSP_MOUNT))
-        self.TX_TEMPLATE = Template(
-            _buildTXPipeline(self.SOURCE_CHAIN, self.encoder_chain, transport, self.remote_video_path)
-        ) if transport != "rtsp" else None
-
-    def rtspLaunchChain(self) -> str:
-        """Return this camera's launch chain for an ``RTSPCameraServer`` mount."""
-        return f"{self.SOURCE_CHAIN} ! {self.encoder_chain} ! h264parse ! rtph264pay name=pay0 pt=96"
-
-    def setPort(self, port):
-        self.backend.setPort(port)
-
-    def setTXPipeline(self, pipeline: Template | str | None = None):
-        self.backend.setTXPipeline(pipeline or self.TX_TEMPLATE)
-
-    def setRXPipeline(self, pipeline: Template | str | None = None):
-        self.backend.setRXPipeline(pipeline or self.RX_TEMPLATE)
-
-    def startRXPipeline(self):
-        self.backend.startRXPipeline()
-
-    def captureFrame(self):
-        return self.backend.captureFrame()
-
-    def closeRXPipeline(self):
-        self.backend.closeRXPipeline()
-
-    def initialize(self):
-        self.backend.initialize()
-
-    def initializeStream(self, pids):
-        self.backend.initializeStream(pids)
-
-    def terminate(self):
-        self.backend.terminate()
-
-    def downloadRemoteVideo(self, save_path: str):
-        self.backend.downloadRemoteVideo(self.remote_video_path, save_path)
+    VIDEO_SUFFIX = "EO"
+    BITRATE_KBPS = 6000
+    KEY_INT_FRAMES = 30

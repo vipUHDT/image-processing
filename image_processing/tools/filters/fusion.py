@@ -12,8 +12,8 @@ import numpy as np
 from matplotlib.colors import hsv_to_rgb, rgb_to_hsv
 from PIL import Image
 
-from image_processing.tools.filters.Basis_Function import triangular_basis
-from image_processing.tools.filters.Fuzzy_transform import fuse_images
+from image_processing.tools.filters.basis_function import triangular_basis
+from image_processing.tools.filters.fuzzy_transform import fuse_images
 from image_processing.tools.filters.homography import cropRGBToMatchIR
 
 # Manually selected point correspondences between the IR and EO sensors of the

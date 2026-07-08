@@ -20,17 +20,30 @@ Internal Python package used for UHDT's image processing
      conda activate <env_name>
      ```
 
-3. Install all packages with the following command:  
+3. Install the image-processing package in editable mode. This installs the
+   package's runtime dependencies automatically.
+
+   ```bash
+   pip install -e .
+   ```
+
+   Optional extras:
+
+   ```bash
+   pip install -e ".[models]"   # ultralytics/YOLO inference stack (pulls in torch)
+   pip install -e ".[docs]"     # Sphinx documentation toolchain
+   pip install -e ".[dev]"      # pytest + ruff
+   ```
+
+   The legacy `requirements-<platform>.txt` files pin a full known-good
+   environment (including training stacks) and remain available:
 
    ```bash
    pip install -r requirements-<platform>.txt
    ```
 
-4. Install the image-processing package in editable mode.
-
-```bash
-pip install -e .
-```
+   Note: the GStreamer camera backends additionally require PyGObject and the
+   system GStreamer libraries, installed via the OS package manager.
 
 ## Building Documentation w/ Sphinx
 1. Install `sphinx` and its associated support packages. The requirements.txt file for your platform include these packages.

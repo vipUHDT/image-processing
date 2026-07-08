@@ -20,14 +20,24 @@ __all__ = [
     "detectH264DecoderChain",
     "getBackend",
     "h264EncoderChain",
+    "listBackends",
     "rxPipeline",
     "txTransportChain",
 ]
 
+# Registry of instantiable-by-name backends. Keep this as the single source
+# of truth for valid backend names; ``Camera.setBackend`` validates against it.
+_BACKENDS = {
+    "rb5": RemoteCamera,
+}
+
 
 def getBackend(backend: str) -> CameraBackend | None:
     """Return a new backend instance registered under ``backend``, or None."""
-    backends = {
-        "rb5": RemoteCamera(),
-    }
-    return backends.get(backend)
+    backend_cls = _BACKENDS.get(backend)
+    return backend_cls() if backend_cls else None
+
+
+def listBackends() -> list[str]:
+    """Return the names of all registered backends."""
+    return list(_BACKENDS)

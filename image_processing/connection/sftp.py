@@ -22,45 +22,56 @@ class SFTPController:
         Hostname or IP address of the remote device.
     username : str
         SFTP username.
-    password : str
-        SFTP password.
+    password : str, optional
+        SFTP password. May be omitted when ``key_filename`` is provided.
     port : int, optional
         SSH port (default 22).
+    key_filename : str, optional
+        Path to a private key file to authenticate with instead of (or in
+        addition to) the password.
     """
 
     def __init__(
         self,
         remote_addr: str,
         username: str,
-        password: str,
+        password: Optional[str] = None,
         port: int = 22,
+        key_filename: Optional[str] = None,
     ) -> None:
         self.remote_addr = remote_addr
         self.username = username
         self.password = password
         self.port = port
+        self.key_filename = key_filename
 
-        self.transport: Optional[paramiko.Transport] = None
+        self.client: Optional[paramiko.SSHClient] = None
         self.sftp: Optional[paramiko.SFTPClient] = None
         self.is_connected: bool = False
 
         self.src_device: Optional[str] = None
         self.target_device: Optional[str] = None
 
-    def connect(self) -> None:
+    def connect(self) -> bool:
+        """Open the SFTP session. Returns True on success (failures are logged)."""
         if self.is_connected:
             LOGGER.info(
                 f"SFTP already connected to {self.target_device or ''} <{self.remote_addr}>"
             )
-            return
+            return True
 
         try:
-            self.transport = paramiko.Transport((self.remote_addr, self.port))
-            self.transport.connect(
+            self.client = paramiko.SSHClient()
+            self.client.load_system_host_keys()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client.connect(
+                self.remote_addr,
+                port=self.port,
                 username=self.username,
                 password=self.password,
+                key_filename=self.key_filename,
             )
-            self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+            self.sftp = self.client.open_sftp()
             self.is_connected = True
             LOGGER.info(f"Successfully connected via SFTP to {self.remote_addr}")
         except Exception as e:
@@ -68,9 +79,10 @@ class SFTPController:
                 f"Unable to establish SFTP connection to {self.remote_addr}. "
                 f"Encountered error: {e}"
             )
-            self.transport = None
+            self.client = None
             self.sftp = None
             self.is_connected = False
+        return self.is_connected
 
     def disconnect(self) -> None:
         if not self.is_connected:
@@ -83,15 +95,15 @@ class SFTPController:
         try:
             if self.sftp is not None:
                 self.sftp.close()
-            if self.transport is not None:
-                self.transport.close()
+            if self.client is not None:
+                self.client.close()
         except Exception as e:
             LOGGER.exception(
                 f"Error while closing SFTP connection to {self.remote_addr}: {e}"
             )
         finally:
             self.sftp = None
-            self.transport = None
+            self.client = None
             self.is_connected = False
             LOGGER.info(f"SFTP disconnected from {self.remote_addr}")
 

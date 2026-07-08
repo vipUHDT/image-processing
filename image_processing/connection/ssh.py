@@ -17,29 +17,49 @@ class SSH_Controller:
         Hostname or IP address of the remote device.
     username : str
         SSH username.
-    password : str
-        SSH password.
+    password : str, optional
+        SSH password. May be omitted when ``key_filename`` is provided.
+    key_filename : str, optional
+        Path to a private key file to authenticate with instead of (or in
+        addition to) the password.
     """
 
-    def __init__(self, remote_addr: str, username: str, password: str) -> None:
+    def __init__(
+        self,
+        remote_addr: str,
+        username: str,
+        password: str | None = None,
+        key_filename: str | None = None,
+    ) -> None:
         self.src_device = None
         self.target_device = None
         self.client = paramiko.SSHClient()
         self.remote_addr = remote_addr
         self.username = username
         self.password = password
+        self.key_filename = key_filename
         self.is_connected = False
 
-    def connect(self) -> None:
-        """Open the SSH connection, accepting unknown host keys automatically."""
+    def connect(self) -> bool:
+        """Open the SSH connection, accepting unknown host keys automatically.
+
+        Returns True on success, False otherwise (the failure is logged).
+        """
         try:
             self.client.load_system_host_keys()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(self.remote_addr, username=self.username, password=self.password)
+            self.client.connect(
+                self.remote_addr,
+                username=self.username,
+                password=self.password,
+                key_filename=self.key_filename,
+            )
             LOGGER.info(f"Successfully connected to {self.remote_addr}")
             self.is_connected = True
         except Exception as e:
             LOGGER.exception(f"Unable to connect to {self.remote_addr}. Encountered error: {e}")
+            self.is_connected = False
+        return self.is_connected
 
     def disconnect(self) -> None:
         """Close the SSH connection if it is open."""
